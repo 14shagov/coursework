@@ -1,0 +1,14 @@
+{
+  "name": "rag-chatbot-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Минимальный Electron wrapper для существующего React frontend",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.7.7"
+  }
+}

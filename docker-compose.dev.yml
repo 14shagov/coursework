@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rag-postgres
+    env_file:
+      - .env.dev
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:9
+    container_name: rag-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@local.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "127.0.0.1:5050:80"
+    depends_on:
+      - postgres
+
+  python-service:
+    build:
+      context: ./python-service
+      dockerfile: Dockerfile.dev
+    container_name: rag-python-service
+    env_file:
+      - .env.dev
+    volumes:
+      - ./python-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      LOG_LEVEL: INFO
+      WATCHFILES_FORCE_POLLING: "true"
+      # Обязательный chat-токен (используется также как fallback для embeddings)
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      # Опциональный отдельный токен для embeddings (если пусто -> fallback на GITHUB_TOKEN)
+      EMBEDDING_GITHUB_TOKEN: ${EMBEDDING_GITHUB_TOKEN:-}
+      # Обязательная модель для chat/completions (непустая)
+      LLM_MODEL: ${LLM_MODEL:-openai/gpt-4.1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-https://models.github.ai/inference}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  java-service:
+    build:
+      context: ./java-service
+      dockerfile: Dockerfile.dev
+    container_name: rag-java-service
+    env_file:
+      - .env.dev
+    volumes:
+      - ./java-service:/app
+      - java_m2_cache:/root/.m2
+    working_dir: /app
+    command: mvn -DskipTests spring-boot:run -Dspring-boot.run.fork=false
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      LOGGING_LEVEL_ROOT: INFO
+      SPRING_DEVTOOLS_RESTART_ENABLED: "true"
+      SPRING_DEVTOOLS_RESTART_POLL_INTERVAL: 2s
+      SPRING_DEVTOOLS_RESTART_QUIET_PERIOD: 1s
+
+      JAVA_TOOL_OPTIONS: >
+        -Dspring.devtools.restart.poll-interval=2000
+        -Dspring.devtools.restart.quiet-period=1000
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ragdb}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-raguser}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ragpass}
+      PYTHON_SERVICE_BASE_URL: http://python-service:8000
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      python-service:
+        condition: service_started
+
+volumes:
+  pg_data:
+  java_m2_cache:

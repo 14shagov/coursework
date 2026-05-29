@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: ragchatbot
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+chat:
+  rag:
+    top-k: 5
+    # Минимальный порог cosine similarity (0.0–1.0).
+    # 0.0 — без фильтрации, брать все top-k результаты.
+    # Рекомендуется поднять до 0.5–0.6 после первичного тестирования.
+    min-similarity: 0.35
+
+app:
+  security:
+    jwt:
+      issuer: ragchatbot-java-service
+      ttl-minutes: 120
+      # Для учебного окружения можно хранить в env APP_SECURITY_JWT_SECRET.
+      secret: ${APP_SECURITY_JWT_SECRET:change-me-please-change-me-please-32chars}
+
+logging:
+  level:
+    root: INFO

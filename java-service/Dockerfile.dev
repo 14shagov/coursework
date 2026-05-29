@@ -1,0 +1,13 @@
+FROM maven:3.9.12-eclipse-temurin-21-alpine
+
+WORKDIR /app
+
+# 1. Cache dependencies in a separate layer
+COPY pom.xml ./
+RUN mvn -B -DskipTests dependency:go-offline
+
+# 2. Source code comes from bind mount in docker-compose.dev.yml
+
+EXPOSE 8080
+
+CMD ["mvn", "-DskipTests", "spring-boot:run", "-Dspring-boot.run.fork=false"]

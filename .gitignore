@@ -1,0 +1,95 @@
+# =============================
+# OS / Editor
+# =============================
+.DS_Store
+Thumbs.db
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# VS Code
+.vscode/
+
+# =============================
+# Java / Maven / Gradle
+# =============================
+*.class
+target/
+build/
+.gradle/
+.mvn/wrapper/maven-wrapper.jar
+
+# package artifacts
+*.jar
+*.war
+*.nar
+*.ear
+
+# logs / dumps
+*.log
+hs_err_pid*
+replay_pid*
+
+# =============================
+# Python
+# =============================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.python-version
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.eggs/
+*.egg-info/
+
+# =============================
+# Node / Frontend
+# =============================
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+web/node_modules/
+web/dist/
+
+# =============================
+# Env / Secrets
+# =============================
+.env
+.env.*
+.env
+.env.dev.example
+
+# =============================
+# Docker / local runtime data
+# =============================
+pg_data/
+redis_data/
+*.pid
+*.seed
+
+# =============================
+# Misc archives
+# =============================
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+
+# Legacy
+*.ctxt
+.mtj.tmp/
