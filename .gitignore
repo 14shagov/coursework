@@ -69,9 +69,7 @@ web/dist/
 # Env / Secrets
 # =============================
 .env
-.env.*
-.env
-.env.dev.example
+.env.dev
 
 # =============================
 # Docker / local runtime data
