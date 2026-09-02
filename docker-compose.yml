@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-raguser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,9 +17,7 @@ services:
       retries: 5
 
   python-service:
-    build:
-      context: ./python-service
-      dockerfile: Dockerfile
+    image: ghcr.io/14shagov/coursework-python-service:latest
     container_name: rag-python-service
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
@@ -33,9 +31,7 @@ services:
         condition: service_healthy
 
   java-service:
-    build:
-      context: ./java-service
-      dockerfile: Dockerfile
+    image: ghcr.io/14shagov/coursework-java-service:latest
     container_name: rag-java-service
     environment:
       SPRING_PROFILES_ACTIVE: prod

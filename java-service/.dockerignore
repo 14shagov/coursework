@@ -1,0 +1,11 @@
+target/
+build/
+.gradle/
+.mvn/wrapper/*.jar
+*.iml
+*.log
+hs_err_pid*
+replay_pid*
+.env
+.env.*
+Dockerfile.dev
