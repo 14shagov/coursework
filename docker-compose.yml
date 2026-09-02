@@ -21,11 +21,12 @@ services:
     container_name: rag-python-service
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:?}
+      EMBEDDING_GITHUB_TOKEN: ${EMBEDDING_GITHUB_TOKEN:-}
       LLM_MODEL: ${LLM_MODEL:?}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:?}
       GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:?}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,17 +36,27 @@ services:
     container_name: rag-java-service
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      APP_SECURITY_JWT_SECRET: ${APP_SECURITY_JWT_SECRET:-change-me-please-change-me-please-32chars}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ragdb}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-raguser}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ragpass}
       PYTHON_SERVICE_BASE_URL: http://python-service:8000
       LOGGING_LEVEL_ROOT: INFO
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       python-service:
+        condition: service_started
+
+  web:
+    image: ghcr.io/14shagov/coursework-web:latest
+    container_name: rag-web
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      java-service:
         condition: service_started
 
 volumes:

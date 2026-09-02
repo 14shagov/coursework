@@ -28,13 +28,15 @@ jobs:
               - 'python-service/**'
             java-service:
               - 'java-service/**'
+            web:
+              - 'web/**'
 
       - id: pick
         env:
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo 'services=["python-service","java-service"]' >> "$GITHUB_OUTPUT"
+            echo 'services=["python-service","java-service","web"]' >> "$GITHUB_OUTPUT"
           else
             echo "services=$CHANGED" >> "$GITHUB_OUTPUT"
           fi
