@@ -20,10 +20,10 @@ services:
     image: ghcr.io/14shagov/coursework-python-service:latest
     container_name: rag-python-service
     environment:
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
-      LLM_MODEL: ${LLM_MODEL:-openai/gpt-4.1}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
-      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-https://models.github.ai/inference}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?}
+      LLM_MODEL: ${LLM_MODEL:?}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:?}
+      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:?}
     ports:
       - "8000:8000"
     depends_on:
