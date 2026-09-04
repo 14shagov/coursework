@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-init-schema.sql
   - include:
       file: db/changelog/changes/002-seed-test-data.sql
+  - include:
+      file: db/changelog/changes/003-embedding-3072.sql

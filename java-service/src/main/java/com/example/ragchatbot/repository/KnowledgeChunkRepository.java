@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface KnowledgeChunkRepository extends JpaRepository<KnowledgeChunk, Long> {
 
@@ -36,6 +37,7 @@ public interface KnowledgeChunkRepository extends JpaRepository<KnowledgeChunk, 
                                                          @Param("limit") int limit);
 
     @Modifying
+    @Transactional
     @Query(value = "UPDATE knowledge_chunks SET embedding = CAST(:embedding AS vector) WHERE id = :chunkId",
             nativeQuery = true)
     int updateEmbeddingByChunkId(@Param("chunkId") Long chunkId,
