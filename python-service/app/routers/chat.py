@@ -9,7 +9,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 llm_client = LlmClient()
 logger = logging.getLogger(__name__)
 
-
+#swag
 @router.post("", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
     try:
