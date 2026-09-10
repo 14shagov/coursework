@@ -56,7 +56,6 @@ export default function ChatPage({ onLogout }) {
         }
       } catch (e) {
         console.error('[chat] init:error', e)
-        // Если диалог не найден на бэкенде — сбрасываем и показываем выбор
         localStorage.removeItem('conversationId')
         localStorage.removeItem('conversationMode')
         setConversationId(null)
@@ -77,7 +76,6 @@ export default function ChatPage({ onLogout }) {
     setError('')
     try {
       const created = await createConversation(mode)
-      // ВАЖНО: используем mode из ответа, а не из аргумента — сервер может корректировать
       const serverMode = created?.mode && ['PLAIN', 'RAG'].includes(created.mode)
         ? created.mode
         : mode
@@ -96,11 +94,6 @@ export default function ChatPage({ onLogout }) {
   const onSubmit = async (e) => {
     e.preventDefault()
     if (!input.trim() || conversationId == null || loading) {
-      console.warn('[chat] submit:blocked', {
-        hasInput: Boolean(input.trim()),
-        conversationId,
-        loading,
-      })
       return
     }
 
@@ -117,11 +110,9 @@ export default function ChatPage({ onLogout }) {
       setMessages((prev) => [...prev, { role: 'ASSISTANT', content: response?.content || '' }])
 
       if (response?.usedRag) {
-        if (response?.usedContext) {
-          setRetrievalStatus(`RAG: найдено чанков: ${response?.retrievedChunksCount ?? 0}`)
-        } else {
-          setRetrievalStatus('Контекст не найден, ответ без базы знаний')
-        }
+        setRetrievalStatus(response?.usedContext
+          ? `RAG: найдено чанков: ${response?.retrievedChunksCount ?? 0}`
+          : 'Контекст не найден, ответ без базы знаний')
       } else {
         setRetrievalStatus('')
       }
@@ -144,9 +135,7 @@ export default function ChatPage({ onLogout }) {
   }
 
   const onInitEmbeddings = async () => {
-    if (embeddingInitLoading) {
-      return
-    }
+    if (embeddingInitLoading) return
     setEmbeddingInitLoading(true)
     setError('')
     try {
@@ -160,20 +149,30 @@ export default function ChatPage({ onLogout }) {
     }
   }
 
+  // === Mode Selection Screen ===
   if (showModeSelect) {
     return (
       <div className="page">
         <div className="chat-container">
-          <button
-            type="button"
-            className="logout-button logout-button-top"
-            onClick={onLogout}
-          >
-            Выйти
-          </button>
-
-          <div className="mode-select-screen">
+          <div className="chat-header">
+            <div className="header-actions">
+              <button
+                className="btn-icon"
+                onClick={onLogout}
+                title="Выйти"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
+            </div>
             <h1>RAG Chatbot</h1>
+            <div className="header-actions" />
+          </div>
+          <div className="mode-select-screen">
+            <h1>Добро пожаловать!</h1>
             <p>Выберите режим для нового чата:</p>
             <div className="mode-cards">
               <button
@@ -193,7 +192,7 @@ export default function ChatPage({ onLogout }) {
                 <p>Чат с поиском по векторной базе знаний</p>
               </button>
             </div>
-            {loading && <div className="loading">Создание чата...</div>}
+            {loading && <div className="loading"><div className="spinner" /></div>}
             {error && <div className="error">{error}</div>}
           </div>
         </div>
@@ -201,36 +200,38 @@ export default function ChatPage({ onLogout }) {
     )
   }
 
+  // === Chat Screen ===
   return (
     <div className="page">
       <div className="chat-container">
-        <button
-          type="button"
-          className="logout-button logout-button-top"
-          onClick={onLogout}
-        >
-          Выйти
-        </button>
-
-        <button
-          type="button"
-          className="logout-button logout-button-secondary"
-          onClick={onNewChat}
-          title="Новый чат"
-        >
-          Новый чат
-        </button>
-
-        <button
-          type="button"
-          className="embeddings-init-button"
-          onClick={onInitEmbeddings}
-          disabled={embeddingInitLoading}
-          title="Запустить векторизацию данных без эмбеддингов"
-        >
-          {embeddingInitLoading ? 'Инициализация...' : 'Инициализировать эмбеддинги'}
-        </button>
-        <div className="chat-header"><h1>RAG Chatbot</h1></div>
+        <div className="chat-header">
+          <div className="header-actions">
+            <button
+              className="btn-icon"
+              onClick={onLogout}
+              title="Выйти"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+            <button className="btn-ghost" onClick={onNewChat}>
+              + Новый чат
+            </button>
+          </div>
+          <h1>RAG Chatbot</h1>
+          <button
+            type="button"
+            className="embeddings-init-button"
+            onClick={onInitEmbeddings}
+            disabled={embeddingInitLoading}
+            title="Запустить векторизацию данных"
+          >
+            {embeddingInitLoading ? 'Инициализация...' : 'Инициализировать эмбеддинги'}
+          </button>
+        </div>
 
         <div className="mode-switch">
           <button
@@ -253,11 +254,17 @@ export default function ChatPage({ onLogout }) {
           {messages.map((msg, idx) => (
             <MessageBubble key={idx} role={msg.role} content={msg.content} />
           ))}
-          {loading && <div className="loading">Загрузка...</div>}
+          {loading && (
+            <div className="message assistant">
+              <div className="bubble bubble-assistant">
+                <div className="spinner" />
+              </div>
+            </div>
+          )}
         </div>
 
         {error && <div className="error">{error}</div>}
-        {retrievalStatus && <div className="info">{retrievalStatus}</div>}
+        {retrievalStatus && <div className="retrieval-status">{retrievalStatus}</div>}
 
         <form onSubmit={onSubmit} className="input-row">
           <input
@@ -265,8 +272,11 @@ export default function ChatPage({ onLogout }) {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Введите сообщение..."
           />
-          <button type="submit" disabled={loading || !input.trim()}>
-            Отправить
+          <button type="submit" disabled={loading || !input.trim()} title="Отправить">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
           </button>
         </form>
       </div>

@@ -1,5 +1,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const TOKEN_KEY = 'authToken'
+import { isMockEnabled, mockApiRequest } from './mock'
 
 export function setAuthToken(token) {
   if (!token) {
@@ -14,6 +15,11 @@ export function getAuthToken() {
 }
 
 export async function apiRequest(path, options = {}) {
+  if (isMockEnabled()) {
+    console.info('[mock]', (options.method || 'GET'), path)
+    return mockApiRequest(path, options)
+  }
+
   const url = `${API_BASE_URL}${path}`
   const token = getAuthToken()
   const requestOptions = {

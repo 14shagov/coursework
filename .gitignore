@@ -70,6 +70,14 @@ web/dist/
 # =============================
 .env
 .env.dev
+.env.local
+
+# =============================
+# Frontend env (vite)
+# =============================
+web/.env
+web/.env.local
+web/.env.*.local
 
 # =============================
 # SOPS private key
