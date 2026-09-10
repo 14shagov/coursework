@@ -72,6 +72,11 @@ web/dist/
 .env.dev
 
 # =============================
+# SOPS private key
+# =============================
+.sops/age.key.txt
+
+# =============================
 # Docker / local runtime data
 # =============================
 pg_data/
