@@ -6,7 +6,7 @@ from openai import OpenAI
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
+#swag
 
 class LlmClient:
     def __init__(self) -> None:
