@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-
+//swag
 export function register(username, password) {
   return apiRequest('/api/auth/register', {
     method: 'POST',
