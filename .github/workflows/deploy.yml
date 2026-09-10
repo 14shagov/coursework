@@ -85,7 +85,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Pull images and restart stack
+      - name: Pull images, decrypt env, and restart stack
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -93,4 +93,9 @@ jobs:
           SSH_PROJECT_PATH: ${{ secrets.SSH_PROJECT_PATH }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "cd '$SSH_PROJECT_PATH' && git pull --ff-only && docker compose pull && docker compose up -d"
+            "cd '$SSH_PROJECT_PATH' && \
+             git pull --ff-only && \
+             export SOPS_AGE_KEY_FILE=\$HOME/.sops/age.key.txt && \
+             sops -d --input-type dotenv --output-type dotenv .env.enc > .env && \
+             docker compose pull && \
+             docker compose up -d"
