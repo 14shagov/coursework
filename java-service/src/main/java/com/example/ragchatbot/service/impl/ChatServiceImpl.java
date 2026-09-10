@@ -6,14 +6,22 @@ import com.example.ragchatbot.dto.ChatMessageDto;
 import com.example.ragchatbot.dto.ChatRequestDto;
 import com.example.ragchatbot.dto.ChatResponseDto;
 import com.example.ragchatbot.dto.RagContextResultDto;
+import com.example.ragchatbot.dto.ConversationResponseDto;
+import com.example.ragchatbot.dto.MessageDto;
+import com.example.ragchatbot.entity.User;
+import com.example.ragchatbot.entity.Conversation;
+import com.example.ragchatbot.entity.KnowledgeChunk;
+import com.example.ragchatbot.entity.Message;
+import com.example.ragchatbot.repository.ConversationRepository;
+import com.example.ragchatbot.repository.UserRepository;
+import com.example.ragchatbot.repository.MessageRepository;
 import com.example.ragchatbot.service.ChatService;
 import com.example.ragchatbot.dto.ConversationMode;
 import com.example.ragchatbot.client.PythonServiceClient;
-import com.example.ragchatbot.entity.KnowledgeChunk;
 import com.example.ragchatbot.service.RagService;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,17 +34,27 @@ public class ChatServiceImpl implements ChatService {
 
     private final PythonServiceClient pythonServiceClient;
     private final RagService ragService;
+    private final ConversationRepository conversationRepository;
+    private final UserRepository userRepository;
+    private final MessageRepository messageRepository;
 
     @Value("${chat.rag.top-k:5}")
     private int ragTopK;
 
-    private final AtomicLong conversationSeq = new AtomicLong(1);
     @Override
-    public Long createConversation(Long userId, String title, String mode) {
-        long conversationId = conversationSeq.getAndIncrement();
-        log.info("[chat-service] createConversation created conversationId={}, userId={}, mode={}, title={}",
-                conversationId, userId, mode, title);
-        return conversationId;
+    public ConversationResponseDto createConversation(Long userId, String title, String mode) {
+        ConversationMode conversationMode = ConversationMode.valueOf(mode);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+        Conversation conversation = new Conversation();
+        conversation.setUser(user);
+        conversation.setMode(conversationMode);
+        conversation.setTitle(title);
+        conversation.setCreatedAt(Instant.now());
+        Conversation saved = conversationRepository.save(conversation);
+        log.info("[chat-service] createConversation saved conversationId={}, userId={}, mode={}, title={}",
+                saved.getId(), userId, mode, title);
+        return new ConversationResponseDto(saved.getId(), saved.getMode().name(), saved.getTitle(), saved.getCreatedAt());
     }
 
     @Override
@@ -121,4 +139,18 @@ public class ChatServiceImpl implements ChatService {
         return response != null && response.getContent() != null ? response.getContent() : "";
     }
 
+    @Override
+    public ConversationResponseDto getConversation(Long id) {
+        Conversation conversation = conversationRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Conversation not found: " + id));
+        return new ConversationResponseDto(conversation.getId(), conversation.getMode().name(),
+                conversation.getTitle(), conversation.getCreatedAt());
+    }
+
+    @Override
+    public List<MessageDto> getHistory(Long conversationId) {
+        return messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).stream()
+                .map(m -> new MessageDto(m.getId(), m.getRole().name(), m.getContent(), m.getCreatedAt()))
+                .toList();
+    }
 }

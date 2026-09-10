@@ -1,6 +1,7 @@
 package com.example.ragchatbot.controller;
 
 import com.example.ragchatbot.dto.ConversationCreateDto;
+import com.example.ragchatbot.dto.ConversationResponseDto;
 import com.example.ragchatbot.dto.MessageDto;
 import com.example.ragchatbot.dto.MessageRequestDto;
 import com.example.ragchatbot.dto.MessageResponseDto;
@@ -16,7 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-//swag
+
 @RestController
 @RequestMapping("/api/conversations")
 @RequiredArgsConstructor
@@ -26,22 +27,29 @@ public class ConversationController {
     private final ChatService chatService;
 
     @PostMapping
-    public ResponseEntity<Long> createConversation(@RequestBody ConversationCreateDto request) {
+    public ResponseEntity<ConversationResponseDto> createConversation(@RequestBody ConversationCreateDto request) {
         log.info("[chat-api] createConversation userId={}, mode={}, title={}",
                 request.getUserId(), request.getMode(), request.getTitle());
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(chatService.createConversation(request.getUserId(), request.getTitle(), request.getMode().name()));
+        ConversationResponseDto dto = chatService.createConversation(
+                request.getUserId(), request.getTitle(), request.getMode().name());
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ConversationResponseDto> getConversation(@PathVariable Long id) {
+        log.info("[chat-api] getConversation conversationId={}", id);
+        return ResponseEntity.ok(chatService.getConversation(id));
     }
 
     @GetMapping("/{id}/messages")
     public ResponseEntity<List<MessageDto>> getHistory(@PathVariable Long id) {
         log.info("[chat-api] getHistory conversationId={}", id);
-        return ResponseEntity.ok(List.of());
+        return ResponseEntity.ok(chatService.getHistory(id));
     }
 
     @PostMapping("/{id}/messages")
     public ResponseEntity<MessageResponseDto> sendMessage(@PathVariable Long id,
-                                                          @RequestBody MessageRequestDto request) {
+                                                           @RequestBody MessageRequestDto request) {
         log.info("[chat-api] sendMessage:start conversationId={}, mode={}, contentLength={}",
                 id, request.getMode(), request.getContent() == null ? 0 : request.getContent().length());
         return ResponseEntity.ok(chatService.sendMessage(id, request));

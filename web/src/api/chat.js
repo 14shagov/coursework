@@ -1,14 +1,18 @@
 import { apiRequest } from './client'
 
-export function createConversation() {
+export function createConversation(mode = 'PLAIN') {
   return apiRequest('/api/conversations', {
     method: 'POST',
     body: JSON.stringify({
       userId: 1,
-      mode: 'PLAIN',
+      mode,
       title: 'Web Chat',
     }),
   })
+}
+
+export function getConversation(conversationId) {
+  return apiRequest(`/api/conversations/${conversationId}`)
 }
 
 export function sendMessage(conversationId, content, mode) {

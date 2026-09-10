@@ -9,4 +9,11 @@ public class MessageDto {
     private String role;
     private String content;
     private Instant createdAt;
+
+    public MessageDto(Long id, String role, String content, Instant createdAt) {
+        this.id = id;
+        this.role = role;
+        this.content = content;
+        this.createdAt = createdAt;
+    }
 }
