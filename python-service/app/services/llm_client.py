@@ -59,8 +59,6 @@ class LlmClient:
             model=settings.llm_model,
             messages=messages,
             temperature=settings.llm_temperature,
-            include_thoughts=settings.llm_include_thoughts,
-            thinking_budget=settings.llm_thinking_budget,
         )
 
         message = response.choices[0].message if response.choices else None

@@ -9,8 +9,6 @@ class Settings(BaseSettings):
     embedding_model: str = "openai/text-embedding-3-small"
     github_api_base_url: str = "https://models.github.ai/inference"
     llm_temperature: float = 0.0
-    llm_include_thoughts: bool = True
-    llm_thinking_budget: int = -1
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
