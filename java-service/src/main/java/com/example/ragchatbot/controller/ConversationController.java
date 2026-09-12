@@ -11,7 +11,9 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,11 +66,18 @@ public class ConversationController {
         return ResponseEntity.ok(chatService.sendMessage(id, request));
     }
 
-    @PostMapping("/{id}/messages/stream")
-    public ResponseEntity<Flux<StreamingChatChunk>> sendMessageStreaming(@PathVariable Long id,
-                                                                          @RequestBody MessageRequestDto request) {
+    @PostMapping(value = "/{id}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<Flux<ServerSentEvent<StreamingChatChunk>>> sendMessageStreaming(@PathVariable Long id,
+                                                                                          @RequestBody MessageRequestDto request) {
         log.info("[chat-api] sendMessageStreaming:start conversationId={}, mode={}", id, request.getMode());
         Flux<StreamingChatChunk> flux = chatService.sendMessageStreaming(id, request);
-        return ResponseEntity.ok().body(flux);
+        return ResponseEntity.ok()
+                .header("Content-Type", "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                .header("Connection", "keep-alive")
+                .body(flux.map(chunk -> ServerSentEvent.<StreamingChatChunk>builder()
+                        .event("message")
+                        .data(chunk)
+                        .build()));
     }
 }

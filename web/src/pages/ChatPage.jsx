@@ -140,16 +140,11 @@ export default function ChatPage({ onLogout }) {
     setInput('')
     setError('')
     setMessages((prev) => [...prev, { id: Date.now(), role: 'USER', content: userText }])
-    // Start RAG progress for RAG mode — first step active, others pending
-    if (conversationMode === 'RAG') {
-      setRagStepStates({
-        embedding:   { status: 'active', label: 'Эмбеддим запрос…' },
-        search:      { status: 'pending', label: 'Ищем похожие фрагменты…' },
-        generation:  { status: 'pending', label: 'Формируем ответ…' },
-      })
-    }
 
-    // Create a placeholder assistant message for streaming
+    // Reset RAG state at submit time; real progress will come from server events.
+    setRagStepStates(null)
+    setRetrievalStatus('')
+
     const assistantId = Date.now() + 1
     setStreamingAssistantId(assistantId)
     setMessages((prev) => [...prev, {
@@ -163,34 +158,48 @@ export default function ChatPage({ onLogout }) {
     try {
       let response
 
-      // Try streaming first, fall back to non-streaming on error
       try {
         await sendMessageStreaming(
           conversationId,
           userText,
           conversationMode,
           (chunk) => {
-            // ── RAG step management (new, real) ──
             if (chunk.type === 'rag_step') {
               const validSteps = ['embedding', 'search', 'generation']
               if (!validSteps.includes(chunk.step)) {
                 console.warn('[chat] unknown rag_step:', chunk)
                 return
               }
+
               setRagStepStates((prev) => {
-                if (!prev) return prev
-                return {
-                  ...prev,
+                const base = prev || {
+                  embedding:   { status: 'pending', label: 'Эмбеддим запрос…' },
+                  search:      { status: 'pending', label: 'Ищем похожие фрагменты…' },
+                  generation:  { status: 'pending', label: 'Формируем ответ…' },
+                }
+
+                const next = {
+                  ...base,
                   [chunk.step]: {
-                    ...prev[chunk.step],
+                    ...base[chunk.step],
                     status: chunk.status === 'start' ? 'active' : 'done',
                   },
                 }
+
+                // If all steps are done, schedule clear.
+                if (
+                  next.embedding.status === 'done' &&
+                  next.search.status === 'done' &&
+                  next.generation.status === 'done'
+                ) {
+                  scheduleRagClear(1000)
+                }
+
+                return next
               })
             } else if (chunk.type === 'rag_search') {
-              setRetrievalStatus('Найдено чанков: ' + chunk.foundChunks)
+              setRetrievalStatus('Найдено чанков: ' + (chunk.foundChunks ?? '?'))
             } else if (chunk.type === 'thinking') {
-              // Append partial thinking text
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -199,7 +208,6 @@ export default function ChatPage({ onLogout }) {
                 )
               )
             } else if (chunk.type === 'done') {
-              // Final answer received — replace streaming message with complete one
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -224,26 +232,33 @@ export default function ChatPage({ onLogout }) {
                 setRetrievalStatus('')
               }
 
-              // All RAG steps done — clear after a short delay
+              // Ensure RAG steps complete even if some events were missing.
               if (conversationMode === 'RAG') {
                 setRagStepStates((prev) => {
-                  if (!prev) return prev
-                  return {
-                    embedding:   { ...prev.embedding, status: 'done' },
-                    search:      { ...prev.search, status: 'done' },
-                    generation:  { ...prev.generation, status: 'done' },
+                  const base = prev || {
+                    embedding:   { status: 'pending', label: 'Эмбеддим запрос…' },
+                    search:      { status: 'pending', label: 'Ищем похожие фрагменты…' },
+                    generation:  { status: 'pending', label: 'Формируем ответ…' },
                   }
+
+                  const next = {
+                    embedding:   { ...base.embedding, status: 'done' },
+                    search:      { ...base.search, status: 'done' },
+                    generation:  { ...base.generation, status: 'done' },
+                  }
+
+                  scheduleRagClear(1000)
+                  return next
                 })
-                scheduleRagClear(1000)
               }
             } else if (chunk.type === 'error') {
-              // Streaming failed — mark message as non-streaming
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId ? { ...m, isStreaming: false } : m
                 )
               )
               setStreamingAssistantId(null)
+
               if (conversationMode === 'RAG') {
                 setRagStepStates((prev) => {
                   if (!prev) return prev
@@ -255,13 +270,13 @@ export default function ChatPage({ onLogout }) {
                 })
                 scheduleRagClear(2000)
               }
+
               throw new Error(chunk.error || 'Streaming error')
             }
           }
         )
       } catch (streamErr) {
         console.warn('[chat] streaming failed, falling back to non-streaming:', streamErr.message)
-        // Fallback: non-streaming request
         response = await sendMessage(conversationId, userText, conversationMode)
         setMessages((prev) =>
           prev.map((m) =>
@@ -287,11 +302,9 @@ export default function ChatPage({ onLogout }) {
           setRetrievalStatus('')
         }
 
-        // Fallback: mark all RAG steps done immediately (unless already errored)
         if (conversationMode === 'RAG') {
           setRagStepStates((prev) => {
             if (!prev) return prev
-            // If any step already errored, don't overwrite
             if (Object.values(prev).some((s) => s.status === 'error')) return prev
             return {
               embedding:   { status: 'done', label: 'Эмбеддим запрос…' },

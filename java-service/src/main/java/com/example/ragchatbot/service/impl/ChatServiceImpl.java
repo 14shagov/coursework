@@ -113,9 +113,8 @@ public class ChatServiceImpl implements ChatService {
             stream = handlePlainStreaming(conversationId, request.getContent(), traceId);
         }
 
-        // На финальном чанке сохраняем ассистента в БД
         return stream.doOnTerminate(() -> {
-            // Сохранение произойдёт на DONE чанке
+            // no-op: assistant message is now saved explicitly in handlers or on error path if needed
         });
     }
 
@@ -143,13 +142,14 @@ public class ChatServiceImpl implements ChatService {
         // Получаем ответ (синхронно, т.к. LLM response без thinking split)
         return stream.concatWith(Flux.defer(() -> {
             String answer = callLlmWithHistory(conversationId, null);
-            saveMessage(conversationId, MessageRole.ASSISTANT, answer);
             String fullThinking = String.join(" ", thinkingChunks);
             log.info("[chat-service] handlePlainStreaming:done traceId={}", traceId);
             return Flux.just(new StreamingChatChunk(
                     StreamingChatChunk.Type.DONE, fullThinking, answer,
                     false, false, 0, 0, null, null));
-        }));
+        }))
+        .doOnComplete(() -> saveMessage(conversationId, MessageRole.ASSISTANT,
+                thinkingChunks.isEmpty() ? "" : String.join(" ", thinkingChunks)));
     }
 
     /**
@@ -173,9 +173,16 @@ public class ChatServiceImpl implements ChatService {
             if (fallbackWithoutContext) {
                 String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
                 saveMessage(conversationId, MessageRole.ASSISTANT, noDataMessage);
-                return Flux.just(new StreamingChatChunk(
-                        StreamingChatChunk.Type.DONE, "", noDataMessage,
-                        true, false, chunksFound, usedChunks, bestScore, threshold));
+                return Flux.just(
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "embedding", "done", null),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "search", "done", null),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "generation", "done", null),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, true, false, chunksFound, usedChunks, bestScore, threshold, null, null, chunksFound),
+                                new StreamingChatChunk(StreamingChatChunk.Type.DONE, "", noDataMessage,
+                                        true, false, chunksFound, usedChunks, bestScore, threshold))
+                        .doOnComplete(() -> {
+                            // already saved above
+                        });
             }
 
             // Строим thinking на основе результатов поиска
@@ -191,15 +198,24 @@ public class ChatServiceImpl implements ChatService {
                     ? List.of()
                     : List.of(contextPrompt);
 
-            return stream.concatWith(Flux.defer(() -> {
-                String answer = callLlmWithHistory(conversationId, contextChunks);
-                saveMessage(conversationId, MessageRole.ASSISTANT, answer);
-                String fullThinking = String.join(" ", thinkingChunks);
-                log.info("[chat-service] handleRagStreaming:done traceId={}", traceId);
-                return Flux.just(new StreamingChatChunk(
-                        StreamingChatChunk.Type.DONE, fullThinking, answer,
-                        true, true, chunksFound, usedChunks, bestScore, threshold));
-            }));
+            return Flux.just(
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "embedding", "done", null),
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "search", "done", null),
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "generation", "start", null),
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, true, chunksFound == 0 || usedChunks > 0, chunksFound, usedChunks, bestScore, threshold, null, null, chunksFound)
+                    )
+                    .concatWith(stream)
+                    .concatWith(Flux.defer(() -> {
+                        String answer = callLlmWithHistory(conversationId, contextChunks);
+                        String fullThinking = String.join(" ", thinkingChunks);
+                        log.info("[chat-service] handleRagStreaming:done traceId={}", traceId);
+                        return Flux.just(
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "generation", "done", null),
+                                new StreamingChatChunk(
+                                        StreamingChatChunk.Type.DONE, fullThinking, answer,
+                                        true, true, chunksFound, usedChunks, bestScore, threshold))
+                                .doOnComplete(() -> saveMessage(conversationId, MessageRole.ASSISTANT, answer));
+                    }));
         });
     }
 

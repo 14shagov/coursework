@@ -37,18 +37,44 @@ export function initEmbeddings() {
   })
 }
 
-/**
- * Streaming send — returns SSE stream of chunks.
- * Each chunk: { type: 'thinking' | 'done', thinking?: string, content?: string, ...rag fields }
- * onChunk is called for every chunk. Returns cleanup fn when done.
- */
+function parseSseEvent(buffer, emit) {
+  const lines = buffer.split('\n')
+  let dataLines = []
+  let eventType = 'message'
+  let hasData = false
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r/g, '')
+
+    if (line.startsWith(':')) {
+      continue
+    }
+
+    if (line.startsWith('event:')) {
+      eventType = line.slice(6).trim() || 'message'
+      continue
+    }
+
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart())
+      hasData = true
+    }
+  }
+
+  if (!hasData) return ''
+
+  const dataStr = dataLines.join('\n')
+  if (!dataStr.trim()) return ''
+
+  emit(eventType, dataStr)
+  return ''
+}
+
 export function sendMessageStreaming(conversationId, content, mode, onChunk) {
-  // Mock mode: use simulated streaming with direct callbacks
   if (isMockEnabled()) {
     return mockStreamResponse(content, mode, onChunk)
   }
 
-  // Real mode: SSE streaming via fetch
   const token = getAuthToken()
   const url = `${import.meta.env.VITE_API_BASE_URL || ''}/api/conversations/${conversationId}/messages/stream`
 
@@ -67,9 +93,18 @@ export function sendMessageStreaming(conversationId, content, mode, onChunk) {
       if (!response.ok) {
         throw new Error(`Streaming error: HTTP ${response.status}`)
       }
+
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+
+      const emitChunk = (payload) => {
+        try {
+          onChunk(payload)
+        } catch (e) {
+          console.warn('[stream] callback error:', e)
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read()
@@ -77,30 +112,25 @@ export function sendMessageStreaming(conversationId, content, mode, onChunk) {
 
         buffer += decoder.decode(value, { stream: true })
 
-        // Split by double newline (SSE event boundary)
         const events = buffer.split('\n\n')
-        buffer = events.pop() // Keep incomplete event in buffer
+        buffer = events.pop() || ''
 
         for (const event of events) {
-          const lines = event.split('\n')
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const jsonStr = line.slice(6)
-              try {
-                const chunk = JSON.parse(jsonStr)
-                onChunk(chunk)
-              } catch (e) {
-                console.warn('[stream] parse error:', jsonStr)
-              }
+          const rest = parseSseEvent(event, (_, dataStr) => {
+            try {
+              const chunk = JSON.parse(dataStr)
+              emitChunk(chunk)
+            } catch (e) {
+              console.warn('[stream] parse error:', dataStr)
             }
-          }
+          })
         }
       }
-      return () => controller.abort()
     })
     .catch((err) => {
       console.error('[stream] fetch error:', err)
-      // Signal done on error too
       onChunk({ type: 'error', error: err.message })
     })
+
+  return () => controller.abort()
 }

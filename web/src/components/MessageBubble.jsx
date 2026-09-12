@@ -4,26 +4,24 @@ import remarkGfm from 'remark-gfm'
 
 export default function MessageBubble({ role, content, thinking, isStreaming }) {
   const isUser = role === 'USER'
-  const [thinkingExpanded, setThinkingExpanded] = useState(!isStreaming)
+  const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const thinkingContentRef = useRef(null)
 
-  // Auto-expand thinking when streaming, auto-scroll to bottom of thinking
+  // Auto-expand thinking once we actually have thinking text or during streaming.
   useEffect(() => {
-    if (isStreaming) {
+    if (isStreaming || (thinking && thinking.length > 0)) {
       setThinkingExpanded(true)
-      // Scroll thinking content to bottom
-      if (thinkingContentRef.current) {
-        thinkingContentRef.current.scrollTop = thinkingContentRef.current.scrollHeight
-      }
     }
   }, [thinking, isStreaming])
 
-  // When streaming ends, collapse thinking
+  // Auto-scroll thinking while it is streaming/appending.
   useEffect(() => {
-    if (isStreaming === false && thinking && thinking.length > 0) {
-      setThinkingExpanded(false)
+    if (isStreaming && thinkingContentRef.current) {
+      thinkingContentRef.current.scrollTop = thinkingContentRef.current.scrollHeight
     }
-  }, [content])
+  }, [thinking, isStreaming])
+
+  const showThinking = isStreaming || (thinking && thinking.length > 0)
 
   if (isUser) {
     return (
@@ -41,8 +39,7 @@ export default function MessageBubble({ role, content, thinking, isStreaming }) 
     <div className="message message-assistant">
       {!isUser && <div className="bubble-role">Assistant</div>}
 
-      {/* Thinking block — compact, GPT/Claude/Gemini style */}
-      {thinking && (
+      {showThinking && (
         <div className="thinking-block">
           <button
             className="thinking-toggle"
@@ -68,14 +65,13 @@ export default function MessageBubble({ role, content, thinking, isStreaming }) 
             ref={thinkingContentRef}
           >
             <div className="bubble-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{thinking}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{thinking || ''}</ReactMarkdown>
               {isStreaming && <span className="thinking-typing-cursor" />}
             </div>
           </div>
         </div>
       )}
 
-      {/* Main response */}
       <div className={`bubble ${isUser ? 'bubble-user' : 'bubble-assistant'}`}>
         <div className="bubble-content">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
