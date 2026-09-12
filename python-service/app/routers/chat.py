@@ -38,8 +38,8 @@ def chat(req: ChatRequest) -> ChatResponse:
                 context_text,
             )
 
-        answer = llm_client.create_chat_completion(messages)
-        return ChatResponse(content=answer)
+        answer, thinking = llm_client.create_chat_completion(messages)
+        return ChatResponse(content=answer, thinking=thinking)
     except Exception as ex:
         logger.exception("LLM provider error in /chat: %s", ex)
         raise HTTPException(status_code=502, detail=f"LLM provider error: {ex}")

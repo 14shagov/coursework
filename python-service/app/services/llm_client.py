@@ -46,7 +46,7 @@ class LlmClient:
         )
         return response.data[0].embedding
 
-    def create_chat_completion(self, messages: list[dict]) -> str:
+    def create_chat_completion(self, messages: list[dict]) -> tuple[str, str | None]:
         logger.info(
             "LLM chat request started: base_url=%s endpoint=%s model=%s messages=%d",
             settings.github_api_base_url,
@@ -54,14 +54,45 @@ class LlmClient:
             settings.llm_model,
             len(messages),
         )
+
         response = self.chat_client.chat.completions.create(
             model=settings.llm_model,
             messages=messages,
             temperature=settings.llm_temperature,
+            include_thoughts=settings.llm_include_thoughts,
+            thinking_budget=settings.llm_thinking_budget,
         )
+
+        message = response.choices[0].message if response.choices else None
+        content = (message.content if message else None) or ""
+        reasoning = getattr(message, "reasoning_content", None) or None
+
+        # Gemini OpenAI-compatible endpoint may also expose thought text
+        # under a top-level `thought` field on the candidate/message wrapper
+        # in some SDK versions. Normalize it into `reasoning`.
+        if not reasoning:
+            thought = getattr(message, "thought", None)
+            if thought:
+                reasoning = thought
+
+        # Fallback: parse `response.candidates[0].content.parts` and join
+        # parts where `part.thought` is true.
+        if not reasoning:
+            try:
+                candidates = getattr(response, "candidates", None) or []
+                if candidates:
+                    parts = getattr(candidates[0].content, "parts", None) or []
+                    thought_parts = [p.text for p in parts if getattr(p, "thought", False) and getattr(p, "text", None)]
+                    if thought_parts:
+                        reasoning = "".join(thought_parts)
+            except Exception as parse_error:
+                logger.debug("thought parse fallback skipped: %s", parse_error)
+
         logger.info(
-            "LLM chat request succeeded: model=%s choices=%d",
+            "LLM chat request succeeded: model=%s choices=%d has_thinking=%s",
             settings.llm_model,
             len(response.choices),
+            reasoning is not None,
         )
-        return response.choices[0].message.content or ""
+
+        return content, reasoning

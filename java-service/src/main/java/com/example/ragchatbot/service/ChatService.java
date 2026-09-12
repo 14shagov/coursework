@@ -15,9 +15,9 @@ public interface ChatService {
 
     Flux<StreamingChatChunk> sendMessageStreaming(Long conversationId, MessageRequestDto request);
 
-    MessageResponseDto handlePlain(Long conversationId, String userMessage);
+    MessageResponseDto handlePlain(Long conversationId, String userMessage, String traceId);
 
-    MessageResponseDto handleRag(Long conversationId, String userMessage);
+    MessageResponseDto handleRag(Long conversationId, String userMessage, String traceId);
 
     ConversationResponseDto getConversation(Long id);
 

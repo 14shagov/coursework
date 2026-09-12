@@ -84,7 +84,7 @@ public class ChatServiceImpl implements ChatService {
             response = handleRag(conversationId, request.getContent(), traceId);
         } else {
             log.info("[chat-service] sendMessage:route=PLAIN traceId={}, conversationId={}", traceId, conversationId);
-            response = handlePlain(conversationId, request.getContent());
+            response = handlePlain(conversationId, request.getContent(), traceId);
         }
 
         // Сохраняем ответ ассистента
@@ -146,15 +146,18 @@ public class ChatServiceImpl implements ChatService {
     private Flux<StreamingChatChunk> handlePlainStreaming(Long conversationId, String userMessage, String traceId) {
         log.info("[chat-service] handlePlainStreaming conversationId={}", conversationId);
 
-        // Генерируем thinking-текст (анализ запроса)
-        String thinkingText = generateThinkingText(userMessage, false);
+        // Получаем реальный thinking и ответ от LLM
+        ChatResponseDto llmResponse = callLlmWithHistory(conversationId, null);
+        String answer = llmResponse.getContent() == null ? "" : llmResponse.getContent();
+        String thinkingText = llmResponse.getThinking();
+        if (thinkingText == null || thinkingText.isBlank()) {
+            thinkingText = generateThinkingText(userMessage, false);
+        }
         List<String> thinkingChunks = splitIntoWords(thinkingText);
 
-        // Стримим thinking чанки с задержкой (imitate LLM thinking speed),
-        // потом отправляем DONE с ответом.
+        // Стримим thinking чанки с задержкой, потом отправляем DONE с ответом.
         return thinkingFlux(thinkingChunks)
                 .concatWith(Flux.defer(() -> {
-                    String answer = callLlmWithHistory(conversationId, null);
                     String fullThinking = String.join(" ", thinkingChunks);
                     log.info("[chat-service] handlePlainStreaming:done traceId={}", traceId);
                     saveMessage(conversationId, MessageRole.ASSISTANT, answer);
@@ -197,18 +200,23 @@ public class ChatServiceImpl implements ChatService {
                         });
             }
 
-            // Строим thinking на основе результатов поиска
+            // Строим контекстный промпт на основе результатов поиска
             String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
-            String thinkingText = generateRagThinkingText(userMessage, contextResult);
+            List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
+                    ? List.of()
+                    : List.of(contextPrompt);
+
+            // Получаем ответ от LLM с контекстом
+            ChatResponseDto llmResponse = callLlmWithHistory(conversationId, contextChunks);
+            String answer = llmResponse.getContent() == null ? "" : llmResponse.getContent();
+            String thinkingText = llmResponse.getThinking();
+            if (thinkingText == null || thinkingText.isBlank()) {
+                thinkingText = generateRagThinkingText(userMessage, contextResult);
+            }
             List<String> thinkingChunks = splitIntoWords(thinkingText);
 
             // Стримим thinking
             Flux<StreamingChatChunk> stream = thinkingFlux(thinkingChunks);
-
-            // Получаем ответ с контекстом
-            List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
-                    ? List.of()
-                    : List.of(contextPrompt);
 
             Duration embeddingDuration = Duration.ofMillis(600);
             Duration searchDuration = Duration.ofMillis(900);
@@ -227,7 +235,6 @@ public class ChatServiceImpl implements ChatService {
                     ))
                     .concatWith(stream)
                     .concatWith(Flux.defer(() -> {
-                        String answer = callLlmWithHistory(conversationId, contextChunks);
                         String fullThinking = String.join(" ", thinkingChunks);
                         log.info("[chat-service] handleRagStreaming:done traceId={}", traceId);
                         return Flux.just(
@@ -289,12 +296,17 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public MessageResponseDto handlePlain(Long conversationId, String userMessage) {
+    public MessageResponseDto handlePlain(Long conversationId, String userMessage, String traceId) {
         log.info("[chat-service] handlePlain conversationId={}, userMessageLength={}",
                 conversationId, userMessage == null ? 0 : userMessage.length());
         String thinkingText = generateThinkingText(userMessage, false);
-        String answer = callLlmWithHistory(conversationId, null);
-        return new MessageResponseDto(answer, thinkingText, conversationId, false, false, 0, 0, null, null);
+        ChatResponseDto llmResponse = callLlmWithHistory(conversationId, null);
+        String answer = llmResponse.getContent() == null ? "" : llmResponse.getContent();
+        String thinking = llmResponse.getThinking();
+        if (thinking == null || thinking.isBlank()) {
+            thinking = thinkingText;
+        }
+        return new MessageResponseDto(answer, thinking, conversationId, false, false, 0, 0, null, null);
     }
 
     @Override
@@ -327,12 +339,16 @@ public class ChatServiceImpl implements ChatService {
                 ? List.of()
                 : List.of(contextPrompt);
 
-        String llmAnswer = callLlmWithHistory(conversationId, contextChunks);
-        String thinkingText = generateRagThinkingText(userMessage, contextResult);
+        ChatResponseDto llmResponse = callLlmWithHistory(conversationId, contextChunks);
+        String llmAnswer = llmResponse.getContent() == null ? "" : llmResponse.getContent();
+        String thinkingText = llmResponse.getThinking();
+        if (thinkingText == null || thinkingText.isBlank()) {
+            thinkingText = generateRagThinkingText(userMessage, contextResult);
+        }
         return new MessageResponseDto(llmAnswer, thinkingText, conversationId, true, true, chunksFound, usedChunks, bestScore, threshold);
     }
 
-    private String callLlmWithHistory(Long conversationId, List<String> contextChunks) {
+    private ChatResponseDto callLlmWithHistory(Long conversationId, List<String> contextChunks) {
         List<Message> history = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
 
         // FIFO-обрезка: если сообщений больше порога — оставляем последнюю половину
@@ -354,7 +370,12 @@ public class ChatServiceImpl implements ChatService {
         request.setContextChunks(contextChunks);
 
         ChatResponseDto response = pythonServiceClient.chat(request);
-        return response != null && response.getContent() != null ? response.getContent() : "";
+        if (response == null) {
+            response = new ChatResponseDto();
+            response.setContent("");
+            response.setThinking(null);
+        }
+        return response;
     }
 
     @Override

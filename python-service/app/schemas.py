@@ -23,3 +23,4 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     content: str
+    thinking: str | None = None
