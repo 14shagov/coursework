@@ -113,9 +113,16 @@ public class ChatServiceImpl implements ChatService {
             stream = handlePlainStreaming(conversationId, request.getContent(), traceId);
         }
 
-        return stream.doOnTerminate(() -> {
-            // no-op: assistant message is now saved explicitly in handlers or on error path if needed
-        });
+        return stream
+                .doOnComplete(() -> log.debug("[chat-service] sendMessageStreaming:complete traceId={}", traceId))
+                .doOnError(error -> log.error("[chat-service] sendMessageStreaming:error traceId={}", traceId, error))
+                .onErrorResume(error -> {
+                    String errorMessage = "Не удалось сформировать ответ. Попробуйте ещё раз.";
+                    saveMessage(conversationId, MessageRole.ASSISTANT, errorMessage);
+                    return Flux.just(new StreamingChatChunk(
+                            StreamingChatChunk.Type.DONE, "", errorMessage,
+                            false, false, 0, 0, 0, null, null, null, null));
+                });
     }
 
     /**
@@ -126,7 +133,7 @@ public class ChatServiceImpl implements ChatService {
         return Flux.fromIterable(thinkingChunks)
                 .delayElements(java.time.Duration.ofMillis(40))
                 .map(chunk -> new StreamingChatChunk(
-                        StreamingChatChunk.Type.THINKING, chunk, null, false, false, 0, 0, null, null));
+                        StreamingChatChunk.Type.THINKING, chunk, null, false, false, 0, 0, 0, null, null, null, null));
     }
 
     private Flux<StreamingChatChunk> handlePlainStreaming(Long conversationId, String userMessage, String traceId) {
@@ -136,20 +143,18 @@ public class ChatServiceImpl implements ChatService {
         String thinkingText = generateThinkingText(userMessage, false);
         List<String> thinkingChunks = splitIntoWords(thinkingText);
 
-        // Стримим thinking чанки с задержкой (imitate LLM thinking speed)
-        Flux<StreamingChatChunk> stream = thinkingFlux(thinkingChunks);
-
-        // Получаем ответ (синхронно, т.к. LLM response без thinking split)
-        return stream.concatWith(Flux.defer(() -> {
-            String answer = callLlmWithHistory(conversationId, null);
-            String fullThinking = String.join(" ", thinkingChunks);
-            log.info("[chat-service] handlePlainStreaming:done traceId={}", traceId);
-            return Flux.just(new StreamingChatChunk(
-                    StreamingChatChunk.Type.DONE, fullThinking, answer,
-                    false, false, 0, 0, null, null));
-        }))
-        .doOnComplete(() -> saveMessage(conversationId, MessageRole.ASSISTANT,
-                thinkingChunks.isEmpty() ? "" : String.join(" ", thinkingChunks)));
+        // Стримим thinking чанки с задержкой (imitate LLM thinking speed),
+        // потом отправляем DONE с ответом.
+        return thinkingFlux(thinkingChunks)
+                .concatWith(Flux.defer(() -> {
+                    String answer = callLlmWithHistory(conversationId, null);
+                    String fullThinking = String.join(" ", thinkingChunks);
+                    log.info("[chat-service] handlePlainStreaming:done traceId={}", traceId);
+                    saveMessage(conversationId, MessageRole.ASSISTANT, answer);
+                    return Flux.just(new StreamingChatChunk(
+                            StreamingChatChunk.Type.DONE, fullThinking, answer,
+                            false, false, 0, 0, 0, null, null, null, null));
+                }));
     }
 
     /**
@@ -174,12 +179,12 @@ public class ChatServiceImpl implements ChatService {
                 String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
                 saveMessage(conversationId, MessageRole.ASSISTANT, noDataMessage);
                 return Flux.just(
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "embedding", "done", null),
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "search", "done", null),
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "generation", "done", null),
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, true, false, chunksFound, usedChunks, bestScore, threshold, null, null, chunksFound),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "embedding", "done"),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "search", "done"),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "generation", "done"),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, false, false, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null),
                                 new StreamingChatChunk(StreamingChatChunk.Type.DONE, "", noDataMessage,
-                                        true, false, chunksFound, usedChunks, bestScore, threshold))
+                                        false, false, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null))
                         .doOnComplete(() -> {
                             // already saved above
                         });
@@ -199,10 +204,10 @@ public class ChatServiceImpl implements ChatService {
                     : List.of(contextPrompt);
 
             return Flux.just(
-                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "embedding", "done", null),
-                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "search", "done", null),
-                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "generation", "start", null),
-                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, true, chunksFound == 0 || usedChunks > 0, chunksFound, usedChunks, bestScore, threshold, null, null, chunksFound)
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "embedding", "done"),
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "search", "done"),
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "generation", "start"),
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, true, true, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null)
                     )
                     .concatWith(stream)
                     .concatWith(Flux.defer(() -> {
@@ -210,10 +215,10 @@ public class ChatServiceImpl implements ChatService {
                         String fullThinking = String.join(" ", thinkingChunks);
                         log.info("[chat-service] handleRagStreaming:done traceId={}", traceId);
                         return Flux.just(
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, null, null, "generation", "done", null),
+                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "generation", "done"),
                                 new StreamingChatChunk(
                                         StreamingChatChunk.Type.DONE, fullThinking, answer,
-                                        true, true, chunksFound, usedChunks, bestScore, threshold))
+                                        true, true, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null))
                                 .doOnComplete(() -> saveMessage(conversationId, MessageRole.ASSISTANT, answer));
                     }));
         });
@@ -256,8 +261,10 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private void saveMessage(Long conversationId, MessageRole role, String content) {
+        Conversation conversation = new Conversation();
+        conversation.setId(conversationId);
         Message message = new Message();
-        message.setConversation(new Conversation() {{ setId(conversationId); }});
+        message.setConversation(conversation);
         message.setRole(role);
         message.setContent(content);
         message.setCreatedAt(Instant.now());

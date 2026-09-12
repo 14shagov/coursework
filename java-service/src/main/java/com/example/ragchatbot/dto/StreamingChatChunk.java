@@ -34,9 +34,9 @@ public class StreamingChatChunk {
     private boolean usedContext;
     private int retrievedChunksCount;
     private int usedChunks;
+    private int foundChunks;
     private Double bestScore;
     private Double threshold;
     private String step;
     private String status;
-    private Integer foundChunks;
 }
