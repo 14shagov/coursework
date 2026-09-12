@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class MessageResponseDto {
     private String content;
+    private String thinking;
     private Long conversationId;
     private boolean usedRag;
     private boolean usedContext;

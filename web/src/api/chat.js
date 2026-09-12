@@ -108,7 +108,17 @@ export function sendMessageStreaming(conversationId, content, mode, onChunk) {
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          const rest = parseSseEvent(buffer, (_, dataStr) => {
+            try {
+              const chunk = JSON.parse(dataStr)
+              emitChunk(chunk)
+            } catch (e) {
+              console.warn('[stream] parse error:', dataStr)
+            }
+          })
+          break
+        }
 
         buffer += decoder.decode(value, { stream: true })
 
@@ -116,7 +126,7 @@ export function sendMessageStreaming(conversationId, content, mode, onChunk) {
         buffer = events.pop() || ''
 
         for (const event of events) {
-          const rest = parseSseEvent(event, (_, dataStr) => {
+          parseSseEvent(event, (_, dataStr) => {
             try {
               const chunk = JSON.parse(dataStr)
               emitChunk(chunk)

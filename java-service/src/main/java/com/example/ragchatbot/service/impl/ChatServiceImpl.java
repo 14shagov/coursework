@@ -20,6 +20,7 @@ import com.example.ragchatbot.service.ChatService;
 import com.example.ragchatbot.dto.ConversationMode;
 import com.example.ragchatbot.client.PythonServiceClient;
 import com.example.ragchatbot.service.RagService;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -131,9 +132,15 @@ public class ChatServiceImpl implements ChatService {
      */
     private Flux<StreamingChatChunk> thinkingFlux(List<String> thinkingChunks) {
         return Flux.fromIterable(thinkingChunks)
-                .delayElements(java.time.Duration.ofMillis(40))
+                .delayElements(Duration.ofMillis(50))
                 .map(chunk -> new StreamingChatChunk(
                         StreamingChatChunk.Type.THINKING, chunk, null, false, false, 0, 0, 0, null, null, null, null));
+    }
+
+    private Flux<StreamingChatChunk> ragPhaseFlux(StreamingChatChunk start, StreamingChatChunk done, Duration duration) {
+        return Flux.just(start)
+                .delaySubscription(duration)
+                .concatWith(Flux.just(done));
     }
 
     private Flux<StreamingChatChunk> handlePlainStreaming(Long conversationId, String userMessage, String traceId) {
@@ -203,12 +210,21 @@ public class ChatServiceImpl implements ChatService {
                     ? List.of()
                     : List.of(contextPrompt);
 
-            return Flux.just(
+            Duration embeddingDuration = Duration.ofMillis(600);
+            Duration searchDuration = Duration.ofMillis(900);
+
+            return ragPhaseFlux(
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "embedding", "start"),
                             new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "embedding", "done"),
+                            embeddingDuration)
+                    .concatWith(ragPhaseFlux(
+                            new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "search", "start"),
                             new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "search", "done"),
+                            searchDuration.minus(embeddingDuration)))
+                    .concatWith(Flux.just(
                             new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, false, false, 0, 0, 0, null, null, "generation", "start"),
                             new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, true, true, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null)
-                    )
+                    ))
                     .concatWith(stream)
                     .concatWith(Flux.defer(() -> {
                         String answer = callLlmWithHistory(conversationId, contextChunks);
@@ -276,8 +292,9 @@ public class ChatServiceImpl implements ChatService {
     public MessageResponseDto handlePlain(Long conversationId, String userMessage) {
         log.info("[chat-service] handlePlain conversationId={}, userMessageLength={}",
                 conversationId, userMessage == null ? 0 : userMessage.length());
+        String thinkingText = generateThinkingText(userMessage, false);
         String answer = callLlmWithHistory(conversationId, null);
-        return new MessageResponseDto(answer, conversationId, false, false, 0, 0, null, null);
+        return new MessageResponseDto(answer, thinkingText, conversationId, false, false, 0, 0, null, null);
     }
 
     @Override
@@ -302,7 +319,7 @@ public class ChatServiceImpl implements ChatService {
 
         if (fallbackWithoutContext) {
             String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
-            return new MessageResponseDto(noDataMessage, conversationId, true, false, chunksFound, usedChunks, bestScore, threshold);
+            return new MessageResponseDto(noDataMessage, "", conversationId, true, false, chunksFound, usedChunks, bestScore, threshold);
         }
 
         String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
@@ -311,7 +328,8 @@ public class ChatServiceImpl implements ChatService {
                 : List.of(contextPrompt);
 
         String llmAnswer = callLlmWithHistory(conversationId, contextChunks);
-        return new MessageResponseDto(llmAnswer, conversationId, true, true, chunksFound, usedChunks, bestScore, threshold);
+        String thinkingText = generateRagThinkingText(userMessage, contextResult);
+        return new MessageResponseDto(llmAnswer, thinkingText, conversationId, true, true, chunksFound, usedChunks, bestScore, threshold);
     }
 
     private String callLlmWithHistory(Long conversationId, List<String> contextChunks) {
