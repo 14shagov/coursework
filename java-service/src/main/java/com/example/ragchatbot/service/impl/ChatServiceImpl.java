@@ -310,11 +310,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public MessageResponseDto handleRag(Long conversationId, String userMessage) {
-        return handleRag(conversationId, userMessage, UUID.randomUUID().toString());
-    }
-
-    private MessageResponseDto handleRag(Long conversationId, String userMessage, String traceId) {
+    public MessageResponseDto handleRag(Long conversationId, String userMessage, String traceId) {
         int requestLength = userMessage == null ? 0 : userMessage.length();
         log.info("[chat-service] handleRag:start traceId={}, conversationId={}, userMessageLength={}, topK={}",
                 traceId, conversationId, requestLength, ragTopK);
