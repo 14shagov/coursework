@@ -64,10 +64,6 @@ public class ConversationController {
         return ResponseEntity.ok(chatService.sendMessage(id, request));
     }
 
-    /**
-     * Streaming endpoint — returns SSE with thinking chunks, then DONE.
-     * Falls back gracefully if the downstream service doesn't support streaming.
-     */
     @PostMapping("/{id}/messages/stream")
     public ResponseEntity<Flux<StreamingChatChunk>> sendMessageStreaming(@PathVariable Long id,
                                                                           @RequestBody MessageRequestDto request) {
@@ -75,5 +71,4 @@ public class ConversationController {
         Flux<StreamingChatChunk> flux = chatService.sendMessageStreaming(id, request);
         return ResponseEntity.ok().body(flux);
     }
-
 }

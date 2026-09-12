@@ -24,6 +24,6 @@ public interface PythonServiceClient {
      * If the Python service does not implement this endpoint,
      * Feign will return an error and the caller will fall back to non-streaming.
      */
-    @PostMapping(value = "/chat/stream", consumes = MediaType.APPLICATION_JSON, produces = MediaType.TEXT_PLAIN)
+    @PostMapping(value = "/chat/stream", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.TEXT_PLAIN_VALUE)
     Flux<String> chatStreaming(@RequestBody ChatRequestDto request);
 }

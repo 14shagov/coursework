@@ -3,6 +3,7 @@ package com.example.ragchatbot.service;
 import com.example.ragchatbot.dto.ConversationResponseDto;
 import com.example.ragchatbot.dto.MessageRequestDto;
 import com.example.ragchatbot.dto.MessageResponseDto;
+import com.example.ragchatbot.dto.StreamingChatChunk;
 
 import java.util.List;
 import reactor.core.publisher.Flux;
