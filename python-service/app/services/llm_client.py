@@ -12,25 +12,25 @@ class LlmClient:
     def __init__(self) -> None:
         self.chat_client = OpenAI(
             api_key=settings.github_token,
-            base_url=settings.github_api_base_url,
+            base_url=settings.effective_chat_url,
         )
         self.embedding_client = OpenAI(
             api_key=settings.effective_embedding_token,
-            base_url=settings.github_api_base_url,
+            base_url=settings.effective_embedding_url,
         )
-        self.chat_completions_url = urljoin(f"{settings.github_api_base_url.rstrip('/')}/", "chat/completions")
-        self.embeddings_url = urljoin(f"{settings.github_api_base_url.rstrip('/')}/", "embeddings")
+        self.chat_completions_url = urljoin(f"{settings.effective_chat_url.rstrip('/')}/", "chat/completions")
+        self.embeddings_url = urljoin(f"{settings.effective_embedding_url.rstrip('/')}/", "embeddings")
         logger.info(
-            "LLM clients initialized: base_url=%s llm_model=%s embedding_model=%s",
-            settings.github_api_base_url,
+            "LLM clients initialized: chat_url=%s embedding_url=%s llm_model=%s embedding_model=%s",
+            settings.effective_chat_url,
+            settings.effective_embedding_url,
             settings.llm_model,
             settings.embedding_model,
         )
 
     def create_embedding(self, text: str) -> list[float]:
         logger.info(
-            "LLM embedding request started: base_url=%s endpoint=%s model=%s text_len=%d",
-            settings.github_api_base_url,
+            "LLM embedding request started: endpoint_url=%s model=%s text_len=%d",
             self.embeddings_url,
             settings.embedding_model,
             len(text),
@@ -48,8 +48,7 @@ class LlmClient:
 
     def create_chat_completion(self, messages: list[dict]) -> tuple[str, str | None]:
         logger.info(
-            "LLM chat request started: base_url=%s endpoint=%s model=%s messages=%d",
-            settings.github_api_base_url,
+            "LLM chat request started: endpoint_url=%s model=%s messages=%d",
             self.chat_completions_url,
             settings.llm_model,
             len(messages),

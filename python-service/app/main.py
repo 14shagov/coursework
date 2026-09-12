@@ -20,7 +20,8 @@ def log_config_summary() -> None:
         "startup_config_summary",
         extra={
             "config": {
-                "github_api_base_url": settings.github_api_base_url,
+                "chat_api_base_url": settings.effective_chat_url,
+                "embedding_api_base_url": settings.effective_embedding_url,
                 "llm_model": settings.llm_model,
                 "embedding_model": settings.embedding_model,
                 "has_chat_token": bool(settings.github_token.strip()),
