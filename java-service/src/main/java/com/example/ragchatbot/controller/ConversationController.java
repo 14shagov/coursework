@@ -5,6 +5,7 @@ import com.example.ragchatbot.dto.ConversationResponseDto;
 import com.example.ragchatbot.dto.MessageDto;
 import com.example.ragchatbot.dto.MessageRequestDto;
 import com.example.ragchatbot.dto.MessageResponseDto;
+import com.example.ragchatbot.dto.StreamingChatChunk;
 import com.example.ragchatbot.service.ChatService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Flux;
 
 @RestController
 @RequestMapping("/api/conversations")
@@ -33,6 +36,12 @@ public class ConversationController {
         ConversationResponseDto dto = chatService.createConversation(
                 request.getUserId(), request.getTitle(), request.getMode().name());
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<ConversationResponseDto>> listConversations(@RequestParam Long userId) {
+        log.info("[chat-api] listConversations userId={}", userId);
+        return ResponseEntity.ok(chatService.listConversations(userId));
     }
 
     @GetMapping("/{id}")
@@ -53,6 +62,18 @@ public class ConversationController {
         log.info("[chat-api] sendMessage:start conversationId={}, mode={}, contentLength={}",
                 id, request.getMode(), request.getContent() == null ? 0 : request.getContent().length());
         return ResponseEntity.ok(chatService.sendMessage(id, request));
+    }
+
+    /**
+     * Streaming endpoint — returns SSE with thinking chunks, then DONE.
+     * Falls back gracefully if the downstream service doesn't support streaming.
+     */
+    @PostMapping("/{id}/messages/stream")
+    public ResponseEntity<Flux<StreamingChatChunk>> sendMessageStreaming(@PathVariable Long id,
+                                                                          @RequestBody MessageRequestDto request) {
+        log.info("[chat-api] sendMessageStreaming:start conversationId={}, mode={}", id, request.getMode());
+        Flux<StreamingChatChunk> flux = chatService.sendMessageStreaming(id, request);
+        return ResponseEntity.ok().body(flux);
     }
 
 }

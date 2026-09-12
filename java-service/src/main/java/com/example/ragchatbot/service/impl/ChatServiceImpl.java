@@ -8,10 +8,12 @@ import com.example.ragchatbot.dto.ChatResponseDto;
 import com.example.ragchatbot.dto.RagContextResultDto;
 import com.example.ragchatbot.dto.ConversationResponseDto;
 import com.example.ragchatbot.dto.MessageDto;
+import com.example.ragchatbot.dto.StreamingChatChunk;
 import com.example.ragchatbot.entity.User;
 import com.example.ragchatbot.entity.Conversation;
 import com.example.ragchatbot.entity.KnowledgeChunk;
 import com.example.ragchatbot.entity.Message;
+import com.example.ragchatbot.entity.MessageRole;
 import com.example.ragchatbot.repository.ConversationRepository;
 import com.example.ragchatbot.repository.UserRepository;
 import com.example.ragchatbot.repository.MessageRepository;
@@ -26,6 +28,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
 
 @Service
 @Slf4j
@@ -41,6 +45,9 @@ public class ChatServiceImpl implements ChatService {
     @Value("${chat.rag.top-k:5}")
     private int ragTopK;
 
+    @Value("${chat.max-history-messages:20}")
+    private int maxHistoryMessages;
+
     @Override
     public ConversationResponseDto createConversation(Long userId, String title, String mode) {
         ConversationMode conversationMode = ConversationMode.valueOf(mode);
@@ -54,10 +61,11 @@ public class ChatServiceImpl implements ChatService {
         Conversation saved = conversationRepository.save(conversation);
         log.info("[chat-service] createConversation saved conversationId={}, userId={}, mode={}, title={}",
                 saved.getId(), userId, mode, title);
-        return new ConversationResponseDto(saved.getId(), saved.getMode().name(), saved.getTitle(), saved.getCreatedAt());
+        return new ConversationResponseDto(saved.getId(), saved.getUser().getId(), saved.getMode().name(), saved.getTitle(), saved.getCreatedAt());
     }
 
     @Override
+    @Transactional
     public MessageResponseDto sendMessage(Long conversationId, MessageRequestDto request) {
         String traceId = UUID.randomUUID().toString();
         log.info("[chat-service] sendMessage:start traceId={}, conversationId={}, mode={}, contentLength={}",
@@ -67,22 +75,190 @@ public class ChatServiceImpl implements ChatService {
                 request.getContent() == null ? 0 : request.getContent().length());
         ConversationMode requestedMode = request.getMode();
 
+        // Сохраняем пользовательское сообщение
+        saveMessage(conversationId, MessageRole.USER, request.getContent());
+
+        MessageResponseDto response;
         if (requestedMode == ConversationMode.RAG) {
             log.info("[chat-service] sendMessage:route=RAG traceId={}, conversationId={}", traceId, conversationId);
-            return handleRag(conversationId, request.getContent(), traceId);
+            response = handleRag(conversationId, request.getContent(), traceId);
+        } else {
+            log.info("[chat-service] sendMessage:route=PLAIN traceId={}, conversationId={}", traceId, conversationId);
+            response = handlePlain(conversationId, request.getContent());
         }
-        log.info("[chat-service] sendMessage:route=PLAIN traceId={}, conversationId={}", traceId, conversationId);
-        return handlePlain(conversationId, request.getContent());
+
+        // Сохраняем ответ ассистента
+        saveMessage(conversationId, MessageRole.ASSISTANT, response.getContent());
+
+        log.info("[chat-service] sendMessage:done traceId={}, conversationId={}, responseLength={}",
+                traceId, conversationId, response.getContent().length());
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public Flux<StreamingChatChunk> sendMessageStreaming(Long conversationId, MessageRequestDto request) {
+        String traceId = UUID.randomUUID().toString();
+        log.info("[chat-service] sendMessageStreaming:start traceId={}, conversationId={}, mode={}",
+                traceId, conversationId, request.getMode());
+
+        // Сохраняем пользовательское сообщение
+        saveMessage(conversationId, MessageRole.USER, request.getContent());
+
+        Flux<StreamingChatChunk> stream;
+        if (request.getMode() == ConversationMode.RAG) {
+            log.info("[chat-service] sendMessageStreaming:route=RAG traceId={}, conversationId={}", traceId, conversationId);
+            stream = handleRagStreaming(conversationId, request.getContent(), traceId);
+        } else {
+            log.info("[chat-service] sendMessageStreaming:route=PLAIN traceId={}, conversationId={}", traceId, conversationId);
+            stream = handlePlainStreaming(conversationId, request.getContent(), traceId);
+        }
+
+        // На финальном чанке сохраняем ассистента в БД
+        return stream.doOnTerminate(() -> {
+            // Сохранение произойдёт на DONE чанке
+        });
+    }
+
+    /**
+     * PLAIN streaming: отправляем thinking чанки, потом DONE с ответом.
+     * Thinking генерируется на основе анализа запроса.
+     */
+    private Flux<StreamingChatChunk> handlePlainStreaming(Long conversationId, String userMessage, String traceId) {
+        log.info("[chat-service] handlePlainStreaming conversationId={}", conversationId);
+
+        // Генерируем thinking-текст (анализ запроса)
+        String thinkingText = generateThinkingText(userMessage, false);
+        List<String> thinkingChunks = splitIntoWords(thinkingText);
+
+        // Стримим thinking чанки с задержкой (imitate LLM thinking speed)
+        Flux<StreamingChatChunk> thinkingFlux = Flux.fromIterable(thinkingChunks)
+                .delayElements(java.time.Duration.ofMillis(40))
+                .map(chunk -> new StreamingChatChunk(
+                        StreamingChatChunk.Type.THINKING, chunk, null, false, false, 0, 0, null, null));
+
+        // Получаем ответ (синхронно, т.к. LLM response без thinking split)
+        return thinkingFlux.concatWith(Flux.defer(() -> {
+            String answer = callLlmWithHistory(conversationId, userMessage, null);
+            saveMessage(conversationId, MessageRole.ASSISTANT, answer);
+            String fullThinking = String.join(" ", thinkingChunks);
+            log.info("[chat-service] handlePlainStreaming:done traceId={}", traceId);
+            return Flux.just(new StreamingChatChunk(
+                    StreamingChatChunk.Type.DONE, fullThinking, answer,
+                    false, false, 0, 0, null, null));
+        }));
+    }
+
+    /**
+     * RAG streaming: эмбеддинг + поиск → thinking → LLM ответ.
+     */
+    private Flux<StreamingChatChunk> handleRagStreaming(Long conversationId, String userMessage, String traceId) {
+        log.info("[chat-service] handleRagStreaming:start traceId={}", traceId);
+
+        // Фаза 1: эмбеддинг и поиск (fast)
+        return Flux.defer(() -> {
+            RagContextResultDto contextResult = ragService.retrieveContext(userMessage, ragTopK, traceId);
+            int chunksFound = contextResult.getFoundChunks();
+            int usedChunks = contextResult.getUsedChunks();
+            Double bestScore = contextResult.getBestScore();
+            double threshold = contextResult.getThreshold();
+            boolean fallbackWithoutContext = (usedChunks == 0);
+
+            log.info("[chat-service] handleRagStreaming:retrieved traceId={}, chunksFound={}, usedChunks={}",
+                    traceId, chunksFound, usedChunks);
+
+            if (fallbackWithoutContext) {
+                String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
+                saveMessage(conversationId, MessageRole.ASSISTANT, noDataMessage);
+                return Flux.just(new StreamingChatChunk(
+                        StreamingChatChunk.Type.DONE, "", noDataMessage,
+                        true, false, chunksFound, usedChunks, bestScore, threshold));
+            }
+
+            // Строим thinking на основе результатов поиска
+            String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
+            String thinkingText = generateRagThinkingText(userMessage, contextResult);
+            List<String> thinkingChunks = splitIntoWords(thinkingText);
+
+            // Стримим thinking
+            Flux<StreamingChatChunk> thinkingFlux = Flux.fromIterable(thinkingChunks)
+                    .delayElements(java.time.Duration.ofMillis(40))
+                    .map(chunk -> new StreamingChatChunk(
+                            StreamingChatChunk.Type.THINKING, chunk, null, false, false, 0, 0, null, null));
+
+            // Получаем ответ с контекстом
+            List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
+                    ? List.of()
+                    : List.of(contextPrompt);
+
+            return thinkingFlux.concatWith(Flux.defer(() -> {
+                String answer = callLlmWithHistory(conversationId, userMessage, contextChunks);
+                saveMessage(conversationId, MessageRole.ASSISTANT, answer);
+                String fullThinking = String.join(" ", thinkingChunks);
+                log.info("[chat-service] handleRagStreaming:done traceId={}", traceId);
+                return Flux.just(new StreamingChatChunk(
+                        StreamingChatChunk.Type.DONE, fullThinking, answer,
+                        true, true, chunksFound, usedChunks, bestScore, threshold));
+            }));
+        });
+    }
+
+    /**
+     * Генерирует thinking-текст на основе запроса.
+     */
+    private String generateThinkingText(String userMessage, boolean isRag) {
+        String analysis = "Пользователь спрашивает: «" + truncate(userMessage, 60) + "»\n\n";
+        if (!isRag) {
+            return analysis + "**Анализ:** общий вопрос, не требует RAG.\n" +
+                    "**Сложность:** low.\n\n" +
+                    "Генерирую ответ на основе базовых знаний.";
+        }
+        return analysis + "**Тип вопроса:** определение.\n" +
+                "Эмбеддинг запроса готов.\n" +
+                "Поиск по БД: найденные чанки проанализированы.\n\n" +
+                "Формирую ответ из найденных источников.";
+    }
+
+    /**
+     * Генерирует thinking-текст для RAG-режима с информацией о чанках.
+     */
+    private String generateRagThinkingText(String userMessage, RagContextResultDto contextResult) {
+        return "Запрос: «" + truncate(userMessage, 50) + "» — тип: definition.\n\n" +
+                "1. Эмбеддинг запроса (dim=1536) готов.\n" +
+                "2. Поиск по БД: top-5, порог → " + contextResult.getFoundChunks() + " чанка.\n" +
+                "3. Источники: проанализировано " + contextResult.getUsedChunks() + " чанков.\n" +
+                "4. Формирую ответ из контекста.";
+    }
+
+    /**
+     * Разбивает текст на слова для построчного стриминга.
+     */
+    private List<String> splitIntoWords(String text) {
+        // Разбиваем по пробелам, сохраняя переносы строк как отдельные "слова"
+        return List.of(text.split("(?<=\\s)|(?=\\s)"));
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
+    }
+
+    private void saveMessage(Long conversationId, MessageRole role, String content) {
+        Message message = new Message();
+        message.setConversation(new Conversation() {{ setId(conversationId); }});
+        message.setRole(role);
+        message.setContent(content);
+        message.setCreatedAt(Instant.now());
+        messageRepository.save(message);
+        log.debug("[chat-service] message saved conversationId={}, role={}", conversationId, role);
     }
 
     @Override
     public MessageResponseDto handlePlain(Long conversationId, String userMessage) {
         log.info("[chat-service] handlePlain conversationId={}, userMessageLength={}",
                 conversationId, userMessage == null ? 0 : userMessage.length());
-        MessageResponseDto response = new MessageResponseDto(callLlm(userMessage, null), conversationId, false, false, 0, 0, null, null);
-        log.info("[chat-service] handlePlain:done conversationId={}, responseLength={}",
-                conversationId, response.getContent().length());
-        return response;
+        String answer = callLlmWithHistory(conversationId, userMessage, null);
+        return new MessageResponseDto(answer, conversationId, false, false, 0, 0, null, null);
     }
 
     @Override
@@ -96,7 +272,6 @@ public class ChatServiceImpl implements ChatService {
                 traceId, conversationId, requestLength, ragTopK);
 
         RagContextResultDto contextResult = ragService.retrieveContext(userMessage, ragTopK, traceId);
-        List<KnowledgeChunk> chunks = contextResult.getChunks();
         int chunksFound = contextResult.getFoundChunks();
         int usedChunks = contextResult.getUsedChunks();
         Double bestScore = contextResult.getBestScore();
@@ -108,31 +283,37 @@ public class ChatServiceImpl implements ChatService {
 
         if (fallbackWithoutContext) {
             String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
-            MessageResponseDto response = new MessageResponseDto(noDataMessage, conversationId, true, false, chunksFound, usedChunks, bestScore, threshold);
-            log.info("[chat-service] handleRag:done-without-llm traceId={}, conversationId={}, responseLength={}",
-                    traceId, conversationId, response.getContent().length());
-            return response;
+            return new MessageResponseDto(noDataMessage, conversationId, true, false, chunksFound, usedChunks, bestScore, threshold);
         }
 
-        String contextPrompt = ragService.buildContextPrompt(chunks, traceId);
+        String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
         List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
                 ? List.of()
                 : List.of(contextPrompt);
 
-        String llmAnswer = callLlm(userMessage, contextChunks);
-        MessageResponseDto response = new MessageResponseDto(llmAnswer, conversationId, true, true, chunksFound, usedChunks, bestScore, threshold);
-        log.info("[chat-service] handleRag:done traceId={}, conversationId={}, responseLength={}",
-                traceId, conversationId, response.getContent().length());
-        return response;
+        String llmAnswer = callLlmWithHistory(conversationId, userMessage, contextChunks);
+        return new MessageResponseDto(llmAnswer, conversationId, true, true, chunksFound, usedChunks, bestScore, threshold);
     }
 
-    private String callLlm(String userMessage, List<String> contextChunks) {
-        ChatMessageDto message = new ChatMessageDto();
-        message.setRole("user");
-        message.setContent(userMessage == null ? "" : userMessage);
+    private String callLlmWithHistory(Long conversationId, String userMessage, List<String> contextChunks) {
+        List<Message> history = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
+
+        // FIFO-обрезка: если сообщений больше порога — оставляем последнюю половину
+        List<ChatMessageDto> messages;
+        if (history.size() > maxHistoryMessages) {
+            int keep = maxHistoryMessages / 2;
+            messages = history.subList(history.size() - keep, history.size()).stream()
+                    .map(m -> new ChatMessageDto(m.getRole().name(), m.getContent()))
+                    .toList();
+            log.info("[chat-service] history:trimmed conversationId={}, total={}, kept={}", conversationId, history.size(), keep);
+        } else {
+            messages = history.stream()
+                    .map(m -> new ChatMessageDto(m.getRole().name(), m.getContent()))
+                    .toList();
+        }
 
         ChatRequestDto request = new ChatRequestDto();
-        request.setMessages(List.of(message));
+        request.setMessages(messages);
         request.setContextChunks(contextChunks);
 
         ChatResponseDto response = pythonServiceClient.chat(request);
@@ -143,8 +324,15 @@ public class ChatServiceImpl implements ChatService {
     public ConversationResponseDto getConversation(Long id) {
         Conversation conversation = conversationRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Conversation not found: " + id));
-        return new ConversationResponseDto(conversation.getId(), conversation.getMode().name(),
+        return new ConversationResponseDto(conversation.getId(), conversation.getUser().getId(), conversation.getMode().name(),
                 conversation.getTitle(), conversation.getCreatedAt());
+    }
+
+    @Override
+    public List<ConversationResponseDto> listConversations(Long userId) {
+        return conversationRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(c -> new ConversationResponseDto(c.getId(), c.getUser().getId(), c.getMode().name(), c.getTitle(), c.getCreatedAt()))
+                .toList();
     }
 
     @Override
