@@ -299,12 +299,12 @@ public class ChatServiceImpl implements ChatService {
         if (history.size() > maxHistoryMessages) {
             int keep = maxHistoryMessages / 2;
             messages = history.subList(history.size() - keep, history.size()).stream()
-                    .map(m -> new ChatMessageDto(m.getRole().name(), m.getContent()))
+                    .map(m -> new ChatMessageDto(m.getRole().name().toLowerCase(), m.getContent()))
                     .toList();
             log.info("[chat-service] history:trimmed conversationId={}, total={}, kept={}", conversationId, history.size(), keep);
         } else {
             messages = history.stream()
-                    .map(m -> new ChatMessageDto(m.getRole().name(), m.getContent()))
+                    .map(m -> new ChatMessageDto(m.getRole().name().toLowerCase(), m.getContent()))
                     .toList();
         }
 
