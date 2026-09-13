@@ -16,4 +16,5 @@ public interface PythonServiceClient {
 
     @PostMapping("/chat")
     ChatResponseDto chat(@RequestBody ChatRequestDto request);
+
 }

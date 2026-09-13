@@ -5,4 +5,5 @@ import lombok.Data;
 @Data
 public class ChatResponseDto {
     private String content;
+    private String thinking;
 }

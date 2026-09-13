@@ -33,5 +33,9 @@ public class Message {
     @Column(columnDefinition = "TEXT")
     private String content;
 
+    /** Raw provider reasoning. This is presentation data and is never included in LLM history. */
+    @Column(columnDefinition = "TEXT")
+    private String thinking;
+
     private Instant createdAt;
 }

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from app.config import EMBEDDING_DIMENSIONS
 from app.schemas import EmbedRequest, EmbedResponse
 from app.services.llm_client import LlmClient
 
@@ -11,6 +12,13 @@ llm_client = LlmClient()
 def embed(req: EmbedRequest) -> EmbedResponse:
     try:
         vector = llm_client.create_embedding(req.text)
+        if len(vector) != EMBEDDING_DIMENSIONS:
+            raise HTTPException(
+                status_code=502,
+                detail="Embedding provider returned incompatible vector dimensions",
+            )
         return EmbedResponse(embedding=vector)
+    except HTTPException:
+        raise
     except Exception as ex:
-        raise HTTPException(status_code=502, detail=f"Embedding provider error: {ex}")
+        raise HTTPException(status_code=502, detail="Embedding provider error")

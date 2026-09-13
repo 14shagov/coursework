@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ConversationResponseDto {
     private Long id;
+    private Long userId;
     private String mode;
     private String title;
     private Instant createdAt;

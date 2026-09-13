@@ -8,6 +8,7 @@ import com.example.ragchatbot.dto.RagContextResultDto;
 import com.example.ragchatbot.entity.KnowledgeChunk;
 import com.example.ragchatbot.repository.KnowledgeChunkRepository;
 import com.example.ragchatbot.service.RagService;
+import com.example.ragchatbot.util.EmbeddingVectorContract;
 import com.example.ragchatbot.util.VectorSqlFormatter;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 @Service
 @Slf4j
@@ -48,15 +51,22 @@ public class RagServiceImpl implements RagService {
         embedRequest.setText(normalizedMessage);
         EmbedResponseDto embedResponse = pythonServiceClient.embed(embedRequest);
 
-        if (embedResponse == null || embedResponse.getEmbedding() == null || embedResponse.getEmbedding().isEmpty()) {
-            log.info("[rag-service] retrieve:skip traceId={}, reason=empty-embedding", traceId);
-            return new RagContextResultDto(List.of(), 0, 0, null, minSimilarity);
+        if (embedResponse == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Embedding provider returned no vector");
         }
 
         log.debug("[rag-service] retrieve:embedding traceId={}, queryVectorLength={}",
                 traceId, embedResponse.getEmbedding().size());
 
-        String embeddingLiteral = VectorSqlFormatter.toVectorLiteral(embedResponse.getEmbedding());
+        String embeddingLiteral;
+        try {
+            embeddingLiteral = VectorSqlFormatter.toVectorLiteral(
+                    embedResponse.getEmbedding(), EmbeddingVectorContract.DIMENSIONS);
+        } catch (IllegalArgumentException exception) {
+            log.warn("[rag-service] retrieve:invalid-embedding traceId={}, reason={}", traceId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Embedding provider returned incompatible vector dimensions");
+        }
         List<KnowledgeChunkRepository.ChunkSimilarityProjection> raw =
                 knowledgeChunkRepository.findTopKBySimilarity(embeddingLiteral, topK);
 

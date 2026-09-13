@@ -1,21 +1,22 @@
 package com.example.ragchatbot.service;
 
 import com.example.ragchatbot.dto.ConversationResponseDto;
-import com.example.ragchatbot.dto.MessageRequestDto;
 import com.example.ragchatbot.dto.MessageResponseDto;
+import com.example.ragchatbot.dto.StreamingChatChunk;
 
 import java.util.List;
+import reactor.core.publisher.Flux;
 
 public interface ChatService {
-    ConversationResponseDto createConversation(Long userId, String title, String mode);
+    ConversationResponseDto createConversation(Long userId, String title, com.example.ragchatbot.dto.ConversationMode mode);
 
-    MessageResponseDto sendMessage(Long conversationId, MessageRequestDto request);
+    MessageResponseDto sendMessage(Long userId, Long conversationId, String content);
 
-    MessageResponseDto handlePlain(Long conversationId, String userMessage);
+    Flux<StreamingChatChunk> sendMessageStreaming(Long userId, Long conversationId, String content);
 
-    MessageResponseDto handleRag(Long conversationId, String userMessage);
+    ConversationResponseDto getConversation(Long userId, Long id);
 
-    ConversationResponseDto getConversation(Long id);
+    List<ConversationResponseDto> listConversations(Long userId);
 
-    List<com.example.ragchatbot.dto.MessageDto> getHistory(Long conversationId);
+    List<com.example.ragchatbot.dto.MessageDto> getHistory(Long userId, Long conversationId);
 }
