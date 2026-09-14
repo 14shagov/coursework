@@ -1,0 +1,28 @@
+name: Live RAG evaluation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GITHUB_TOKEN: ${{ secrets.LIVE_EVAL_GITHUB_TOKEN }}
+      EMBEDDING_GITHUB_TOKEN: ${{ secrets.LIVE_EVAL_EMBEDDING_GITHUB_TOKEN }}
+      LLM_MODEL: Qwen3.6-35B-A3B
+      EMBEDDING_MODEL: gemini-embedding-001
+      CHAT_API_BASE_URL: https://api.hcnsec.cn/v1
+      EMBEDDING_API_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run live RAG evaluation
+        run: mvn -f java-service/pom.xml -Drag.live-eval.enabled=true -Dtest=RagLiveEvalIntegrationTest test
