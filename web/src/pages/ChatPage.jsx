@@ -56,6 +56,7 @@ export default function ChatPage({ onLogout }) {
   const [embeddingJob, setEmbeddingJob] = useState(null)
   const [ragStepStates, setRagStepStates] = useState(null)
   const [ragNotice, setRagNotice] = useState('')
+  const [ragProgressDismissed, setRagProgressDismissed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showModeSelect, setShowModeSelect] = useState(false)
@@ -67,27 +68,20 @@ export default function ChatPage({ onLogout }) {
   const messagesContainerRef = useRef(null)
   const autoFollowRef = useRef(true)
   const scrollFrameRef = useRef(null)
-  const ragCleanupTimerRef = useRef(null)
+  const ragProgressDismissedRef = useRef(false)
   const streamCancelRef = useRef(null)
   const embeddingJobTimerRef = useRef(null)
 
-  const clearRagCleanupTimer = () => {
-    if (ragCleanupTimerRef.current) {
-      clearTimeout(ragCleanupTimerRef.current)
-      ragCleanupTimerRef.current = null
-    }
-  }
-
-  const scheduleRagClear = (delay) => {
-    clearRagCleanupTimer()
-    ragCleanupTimerRef.current = setTimeout(() => {
-      setRagStepStates(null)
-      setRagNotice('')
-    }, delay)
-  }
-
   const clearRagProgress = () => {
-    clearRagCleanupTimer()
+    ragProgressDismissedRef.current = false
+    setRagProgressDismissed(false)
+    setRagStepStates(null)
+    setRagNotice('')
+  }
+
+  const dismissRagProgress = () => {
+    ragProgressDismissedRef.current = true
+    setRagProgressDismissed(true)
     setRagStepStates(null)
     setRagNotice('')
   }
@@ -183,7 +177,6 @@ export default function ChatPage({ onLogout }) {
 
   useEffect(() => () => {
     streamCancelRef.current?.()
-    clearTimeout(ragCleanupTimerRef.current)
     clearTimeout(embeddingJobTimerRef.current)
     if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current)
   }, [])
@@ -232,6 +225,7 @@ export default function ChatPage({ onLogout }) {
         userText,
         (chunk) => {
             if (chunk.type === 'rag_step') {
+              if (ragProgressDismissedRef.current) return
               const validSteps = ['embedding', 'search', 'generation']
               if (!validSteps.includes(chunk.step)) {
                 console.warn('[chat] unknown rag_step:', chunk)
@@ -253,18 +247,10 @@ export default function ChatPage({ onLogout }) {
                   },
                 }
 
-                // If all steps are done, schedule clear.
-                if (
-                  next.embedding.status === 'done' &&
-                  next.search.status === 'done' &&
-                  next.generation.status === 'done'
-                ) {
-                  scheduleRagClear(4000)
-                }
-
                 return next
               })
             } else if (chunk.type === 'rag_search') {
+              if (ragProgressDismissedRef.current) return
               setRagNotice('Найдено чанков: ' + (chunk.foundChunks ?? '?'))
             } else if (chunk.type === 'thinking') {
               if (typeof chunk.thinking !== 'string' || !chunk.thinking.trim()) return
@@ -288,7 +274,9 @@ export default function ChatPage({ onLogout }) {
               setStreamingAssistantId(null)
 
               if (chunk.usedRag && !chunk.usedContext) {
-                setRagNotice('Релевантный контекст не найден')
+                if (!ragProgressDismissedRef.current) {
+                  setRagNotice('Релевантный контекст не найден')
+                }
               }
 
               // Ensure RAG steps complete even if some events were missing.
@@ -306,7 +294,6 @@ export default function ChatPage({ onLogout }) {
                     generation:  { ...base.generation, status: 'done' },
                   }
 
-                  scheduleRagClear(4000)
                   return next
                 })
               }
@@ -525,8 +512,14 @@ export default function ChatPage({ onLogout }) {
 
           <div className="messages" key={conversationId} ref={messagesContainerRef} onScroll={onMessagesScroll}>
             {/* RAG progress — real steps from SSE events */}
-            {conversationMode === 'RAG' && ragStepStates && (
+            {conversationMode === 'RAG' && ragStepStates && !ragProgressDismissed && (
               <div className="rag-progress">
+                <div className="rag-progress-header">
+                  <span>Обработка RAG</span>
+                  <button type="button" className="rag-progress-close" onClick={dismissRagProgress} aria-label="Закрыть этапы RAG" title="Закрыть">
+                    ×
+                  </button>
+                </div>
                 {Object.entries(ragStepStates).map(([key, step], idx) => (
                   <div className={`rag-step rag-step-${step.status}`} key={idx}>
                     {step.status === 'active' && <span className="rag-step-icon spinner-small" />}
