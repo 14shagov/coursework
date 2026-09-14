@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { appendAssistantText, createPendingMessages } from './ChatPage'
+import { appendAssistantText, createPendingMessages, isNearMessagesBottom } from './ChatPage'
 
 describe('pending chat messages', () => {
   it('assigns distinct IDs before React schedules state updates', () => {
@@ -17,5 +17,10 @@ describe('pending chat messages', () => {
 
     expect(messages[0].content).toBe('Question')
     expect(messages[1].content).toBe('Answer')
+  })
+
+  it('keeps auto-scroll only while reader remains near bottom', () => {
+    expect(isNearMessagesBottom({ scrollHeight: 1000, scrollTop: 668, clientHeight: 300 })).toBe(true)
+    expect(isNearMessagesBottom({ scrollHeight: 1000, scrollTop: 500, clientHeight: 300 })).toBe(false)
   })
 })

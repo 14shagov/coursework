@@ -36,6 +36,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @Service
 @Slf4j
@@ -216,65 +217,63 @@ public class ChatServiceImpl implements ChatService {
     private Flux<StreamingChatChunk> handleRagStreaming(Long conversationId, String userMessage, String traceId) {
         log.info("[chat-service] handleRagStreaming:start traceId={}", traceId);
 
-        // Фаза 1: эмбеддинг и поиск (fast)
-        return Flux.defer(() -> {
-            RagContextResultDto contextResult = ragService.retrieveContext(userMessage, ragTopK, traceId);
-            int chunksFound = contextResult.getFoundChunks();
-            int usedChunks = contextResult.getUsedChunks();
-            Double bestScore = contextResult.getBestScore();
-            double threshold = contextResult.getThreshold();
-            boolean fallbackWithoutContext = (usedChunks == 0);
+        return Flux.just(ragStep("embedding", "start"))
+                .concatWith(Mono.fromCallable(() -> ragService.createQueryEmbedding(userMessage, traceId))
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .flatMapMany(embedding -> Flux.just(
+                                        ragStep("embedding", "done"),
+                                        ragStep("search", "start"))
+                                .concatWith(Mono.fromCallable(() -> ragService.searchContext(embedding, ragTopK, traceId))
+                                        .subscribeOn(Schedulers.boundedElastic())
+                                        .flatMapMany(contextResult -> continueRagStreaming(
+                                                conversationId, contextResult, traceId)))));
+    }
 
-            log.info("[chat-service] handleRagStreaming:retrieved traceId={}, chunksFound={}, usedChunks={}",
-                    traceId, chunksFound, usedChunks);
+    private Flux<StreamingChatChunk> continueRagStreaming(Long conversationId, RagContextResultDto contextResult,
+                                                            String traceId) {
+        int chunksFound = contextResult.getFoundChunks();
+        int usedChunks = contextResult.getUsedChunks();
+        Double bestScore = contextResult.getBestScore();
+        double threshold = contextResult.getThreshold();
+        boolean fallbackWithoutContext = usedChunks == 0;
 
-            if (fallbackWithoutContext) {
-                String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
-                return Flux.just(
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "embedding", "start"),
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "embedding", "done"),
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "generation", "done"),
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, null, false, false, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null),
-                                new StreamingChatChunk(StreamingChatChunk.Type.CONTENT, null, noDataMessage, null,
-                                        true, false, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null),
-                                doneChunk(true, false, chunksFound, usedChunks, bestScore, threshold));
-            }
+        log.info("[chat-service] handleRagStreaming:retrieved traceId={}, chunksFound={}, usedChunks={}",
+                traceId, chunksFound, usedChunks);
 
-            // Строим контекстный промпт на основе результатов поиска
-            String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
-            List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
-                    ? List.of()
-                    : List.of(contextPrompt);
+        Flux<StreamingChatChunk> searchDone = Flux.just(
+                ragStep("search", "done"),
+                new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, null,
+                        true, !fallbackWithoutContext, chunksFound, usedChunks, chunksFound,
+                        bestScore, threshold, null, null),
+                ragStep("generation", "start"));
 
-            ChatRequestDto request = buildChatRequest(conversationId, contextChunks);
+        if (fallbackWithoutContext) {
+            String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
+            return searchDone.concatWithValues(
+                    new StreamingChatChunk(StreamingChatChunk.Type.CONTENT, null, noDataMessage, null,
+                            true, false, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null),
+                    ragStep("generation", "done"),
+                    doneChunk(true, false, chunksFound, usedChunks, bestScore, threshold));
+        }
 
-            // Create the RAG step markers
-            Flux<StreamingChatChunk> ragSteps = Flux.just(
-                    new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "embedding", "start"),
-                    new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "embedding", "done"),
-                    new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "search", "start"),
-                    new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "search", "done"),
-                    new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "generation", "start"),
-                    new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, null, true, true, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null)
-            );
+        String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
+        List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
+                ? List.of()
+                : List.of(contextPrompt);
+        ChatRequestDto request = buildChatRequest(conversationId, contextChunks);
+        Flux<StreamingChatChunk> llmStream = failOnUpstreamError(parseStreamingResponse(
+                pythonStreamingClient.chatStreaming(request).timeout(Duration.ofMinutes(5))));
 
-            // Real LLM streaming
-            Flux<String> rawStream = pythonStreamingClient.chatStreaming(request)
-                    .timeout(Duration.ofMinutes(5));
+        return searchDone
+                .concatWith(llmStream)
+                .concatWithValues(ragStep("generation", "done"),
+                        doneChunk(true, true, chunksFound, usedChunks, bestScore, threshold))
+                .doOnComplete(() -> log.info("[chat-service] handleRagStreaming:done traceId={}", traceId));
+    }
 
-            Flux<StreamingChatChunk> llmStream = failOnUpstreamError(parseStreamingResponse(rawStream));
-
-            // Concat RAG steps + LLM stream + final metadata.
-            return ragSteps
-                    .concatWith(llmStream)
-                    .concatWith(Flux.defer(() -> {
-                        log.info("[chat-service] handleRagStreaming:done traceId={}", traceId);
-                        return Flux.just(
-                                new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null, false, false, 0, 0, 0, null, null, "generation", "done"),
-                                doneChunk(true, true, chunksFound, usedChunks, bestScore, threshold)
-                        );
-                    }));
-        });
+    private StreamingChatChunk ragStep(String step, String status) {
+        return new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null,
+                false, false, 0, 0, 0, null, null, step, status);
     }
 
     /**

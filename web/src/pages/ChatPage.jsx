@@ -43,6 +43,10 @@ export function appendAssistantText(messages, assistantId, field, value) {
   )
 }
 
+export function isNearMessagesBottom({ scrollHeight, scrollTop, clientHeight }, threshold = 32) {
+  return scrollHeight - scrollTop - clientHeight <= threshold
+}
+
 export default function ChatPage({ onLogout }) {
   const [conversationId, setConversationId] = useState(null)
   const [conversationMode, setConversationMode] = useState('PLAIN')
@@ -50,8 +54,8 @@ export default function ChatPage({ onLogout }) {
   const [input, setInput] = useState('')
   const [embeddingInitLoading, setEmbeddingInitLoading] = useState(false)
   const [embeddingJob, setEmbeddingJob] = useState(null)
-  const [retrievalStatus, setRetrievalStatus] = useState('')
   const [ragStepStates, setRagStepStates] = useState(null)
+  const [ragNotice, setRagNotice] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showModeSelect, setShowModeSelect] = useState(false)
@@ -60,6 +64,9 @@ export default function ChatPage({ onLogout }) {
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false)
   const [streamingAssistantId, setStreamingAssistantId] = useState(null)
   const messagesEndRef = useRef(null)
+  const messagesContainerRef = useRef(null)
+  const autoFollowRef = useRef(true)
+  const scrollFrameRef = useRef(null)
   const ragCleanupTimerRef = useRef(null)
   const streamCancelRef = useRef(null)
   const embeddingJobTimerRef = useRef(null)
@@ -75,7 +82,14 @@ export default function ChatPage({ onLogout }) {
     clearRagCleanupTimer()
     ragCleanupTimerRef.current = setTimeout(() => {
       setRagStepStates(null)
+      setRagNotice('')
     }, delay)
+  }
+
+  const clearRagProgress = () => {
+    clearRagCleanupTimer()
+    setRagStepStates(null)
+    setRagNotice('')
   }
 
   const persistConversation = (id, mode) => {
@@ -85,20 +99,42 @@ export default function ChatPage({ onLogout }) {
     localStorage.setItem('conversationMode', mode)
   }
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  const scrollToBottom = (behavior = 'smooth') => {
+    const container = messagesContainerRef.current
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior })
+      return
+    }
+    messagesEndRef.current?.scrollIntoView({ behavior })
+  }
+
+  const scheduleScrollToBottom = () => {
+    if (!autoFollowRef.current) return
+    if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current)
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      if (autoFollowRef.current) scrollToBottom('auto')
+    })
+  }
+
+  const onMessagesScroll = () => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    autoFollowRef.current = isNearMessagesBottom(container)
   }
 
   const loadConversation = async (conv) => {
     setLoading(true)
     setError('')
+    clearRagProgress()
+    autoFollowRef.current = true
     try {
       persistConversation(conv.id, conv.mode || 'PLAIN')
       const history = await getMessages(conv.id)
       setMessages(Array.isArray(history) ? history : [])
       setShowModeSelect(false)
       setSidebarMobileOpen(false)
-      setTimeout(scrollToBottom, 100)
+      setTimeout(() => scrollToBottom(), 100)
     } catch (e) {
       console.error('[chat] load:error', e)
       setError('Ошибка загрузки: ' + e.message)
@@ -149,7 +185,12 @@ export default function ChatPage({ onLogout }) {
     streamCancelRef.current?.()
     clearTimeout(ragCleanupTimerRef.current)
     clearTimeout(embeddingJobTimerRef.current)
+    if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current)
   }, [])
+
+  useEffect(() => {
+    if (streamingAssistantId) scheduleScrollToBottom()
+  }, [messages, streamingAssistantId])
 
   const handleCreateConversation = async (mode) => {
     setLoading(true)
@@ -175,13 +216,13 @@ export default function ChatPage({ onLogout }) {
     const pendingMessages = createPendingMessages(userText)
     const assistantId = pendingMessages.assistant.id
     setLoading(true)
+    autoFollowRef.current = true
     setInput('')
     setError('')
     setMessages((prev) => [...prev, pendingMessages.user, pendingMessages.assistant])
 
     // Reset RAG state at submit time; real progress will come from server events.
-    setRagStepStates(null)
-    setRetrievalStatus('')
+    clearRagProgress()
 
     setStreamingAssistantId(assistantId)
 
@@ -218,13 +259,13 @@ export default function ChatPage({ onLogout }) {
                   next.search.status === 'done' &&
                   next.generation.status === 'done'
                 ) {
-                  scheduleRagClear(1000)
+                  scheduleRagClear(4000)
                 }
 
                 return next
               })
             } else if (chunk.type === 'rag_search') {
-              setRetrievalStatus('Найдено чанков: ' + (chunk.foundChunks ?? '?'))
+              setRagNotice('Найдено чанков: ' + (chunk.foundChunks ?? '?'))
             } else if (chunk.type === 'thinking') {
               if (typeof chunk.thinking !== 'string' || !chunk.thinking.trim()) return
               setMessages((prev) => appendAssistantText(prev, assistantId, 'thinking', chunk.thinking))
@@ -246,14 +287,8 @@ export default function ChatPage({ onLogout }) {
               )
               setStreamingAssistantId(null)
 
-              if (chunk.usedRag) {
-                setRetrievalStatus(
-                  chunk.usedContext
-                    ? 'RAG: найдено чанков: ' + chunk.retrievedChunksCount
-                    : 'Контекст не найден, ответ без базы знаний'
-                )
-              } else {
-                setRetrievalStatus('')
+              if (chunk.usedRag && !chunk.usedContext) {
+                setRagNotice('Релевантный контекст не найден')
               }
 
               // Ensure RAG steps complete even if some events were missing.
@@ -271,7 +306,7 @@ export default function ChatPage({ onLogout }) {
                     generation:  { ...base.generation, status: 'done' },
                   }
 
-                  scheduleRagClear(1000)
+                  scheduleRagClear(4000)
                   return next
                 })
               }
@@ -283,11 +318,11 @@ export default function ChatPage({ onLogout }) {
       await stream.completion
 
       await refreshConversations()
-      setTimeout(scrollToBottom, 100)
+      setTimeout(() => scrollToBottom(), 100)
     } catch (e) {
       setMessages((prev) => prev.filter((message) => message.id !== assistantId))
       setError('Ошибка отправки: ' + e.message)
-      setRagStepStates(null)
+      clearRagProgress()
       setStreamingAssistantId(null)
     } finally {
       streamCancelRef.current = null
@@ -296,6 +331,8 @@ export default function ChatPage({ onLogout }) {
   }
 
   const onNewChat = () => {
+    clearRagProgress()
+    autoFollowRef.current = true
     setShowModeSelect(true)
     setMessages([])
     setConversationId(null)
@@ -486,7 +523,7 @@ export default function ChatPage({ onLogout }) {
             </div>
           </div>
 
-          <div className="messages" key={conversationId}>
+          <div className="messages" key={conversationId} ref={messagesContainerRef} onScroll={onMessagesScroll}>
             {/* RAG progress — real steps from SSE events */}
             {conversationMode === 'RAG' && ragStepStates && (
               <div className="rag-progress">
@@ -499,6 +536,7 @@ export default function ChatPage({ onLogout }) {
                     <span className="rag-step-label">{step.label}</span>
                   </div>
                 ))}
+                {ragNotice && <div className="rag-notice" role="status">{ragNotice}</div>}
               </div>
             )}
             {messages.length === 0 && !loading && (
@@ -538,8 +576,6 @@ export default function ChatPage({ onLogout }) {
               {embeddingJob.errorMessage && ` — ${embeddingJob.errorMessage}`}
             </div>
           )}
-          {retrievalStatus && <div className="retrieval-status">{retrievalStatus}</div>}
-
           <form onSubmit={onSubmit} className="input-row">
             <input
               value={input}

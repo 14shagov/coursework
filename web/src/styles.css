@@ -1097,14 +1097,6 @@ button:disabled {
   flex-shrink: 0;
 }
 
-.retrieval-status {
-  padding: 8px 16px;
-  background: var(--accent-subtle);
-  color: var(--accent);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
 .embedding-job-status {
   padding: 8px 16px;
   background: var(--accent-subtle);
@@ -1118,14 +1110,25 @@ button:disabled {
     ============================================ */
 
 .rag-progress {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px 16px;
-  margin-bottom: 4px;
+  margin: 0 0 4px;
   background: rgba(0, 0, 0, 0.12);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16);
+}
+
+.rag-notice {
+  padding-top: 7px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .rag-step {

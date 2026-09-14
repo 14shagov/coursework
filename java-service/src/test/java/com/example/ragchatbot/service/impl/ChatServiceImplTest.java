@@ -12,6 +12,8 @@ import com.example.ragchatbot.client.PythonServiceClient;
 import com.example.ragchatbot.client.PythonStreamingClient;
 import com.example.ragchatbot.dto.MessageDto;
 import com.example.ragchatbot.dto.MessageRole;
+import com.example.ragchatbot.dto.RagContextResultDto;
+import com.example.ragchatbot.dto.StreamingChatChunk;
 import com.example.ragchatbot.entity.Conversation;
 import com.example.ragchatbot.entity.Message;
 import com.example.ragchatbot.repository.ConversationRepository;
@@ -20,6 +22,7 @@ import com.example.ragchatbot.repository.UserRepository;
 import com.example.ragchatbot.service.RagService;
 import java.util.List;
 import java.util.Optional;
+import org.mockito.InOrder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +33,7 @@ import reactor.core.publisher.Flux;
 class ChatServiceImplTest {
 
     private PythonStreamingClient pythonStreamingClient;
+    private RagService ragService;
     private ConversationRepository conversationRepository;
     private MessageRepository messageRepository;
     private ChatServiceImpl chatService;
@@ -38,7 +42,7 @@ class ChatServiceImplTest {
     void setUp() {
         PythonServiceClient pythonServiceClient = mock(PythonServiceClient.class);
         pythonStreamingClient = mock(PythonStreamingClient.class);
-        RagService ragService = mock(RagService.class);
+        ragService = mock(RagService.class);
         conversationRepository = mock(ConversationRepository.class);
         UserRepository userRepository = mock(UserRepository.class);
         messageRepository = mock(MessageRepository.class);
@@ -49,6 +53,7 @@ class ChatServiceImplTest {
                 conversationRepository,
                 userRepository,
                 messageRepository);
+        org.springframework.test.util.ReflectionTestUtils.setField(chatService, "ragTopK", 5);
     }
 
     @Test
@@ -152,5 +157,38 @@ class ChatServiceImplTest {
         ArgumentCaptor<Message> saved = ArgumentCaptor.forClass(Message.class);
         verify(messageRepository).save(saved.capture());
         assertThat(saved.getValue().getRole()).isEqualTo(MessageRole.USER);
+    }
+
+    @Test
+    void emitsRagStepsAroundActualEmbeddingSearchAndGeneration() {
+        Conversation conversation = new Conversation();
+        conversation.setId(22L);
+        conversation.setMode(com.example.ragchatbot.dto.ConversationMode.RAG);
+        when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
+        when(ragService.createQueryEmbedding(eq("Question"), any())).thenReturn(List.of(1.0f));
+        when(ragService.searchContext(eq(List.of(1.0f)), eq(5), any()))
+                .thenReturn(new RagContextResultDto(List.of(), 3, 0, 0.7d, 0.35d));
+
+        List<StreamingChatChunk> chunks = chatService.sendMessageStreaming(7L, 22L, "Question")
+                .collectList()
+                .block();
+
+        assertThat(chunks)
+                .extracting(StreamingChatChunk::getType, StreamingChatChunk::getStep, StreamingChatChunk::getStatus)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.RAG_STEP, "embedding", "start"),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.RAG_STEP, "embedding", "done"),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.RAG_STEP, "search", "start"),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.RAG_STEP, "search", "done"),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.RAG_SEARCH, null, null),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.RAG_STEP, "generation", "start"),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.CONTENT, null, null),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.RAG_STEP, "generation", "done"),
+                        org.assertj.core.groups.Tuple.tuple(StreamingChatChunk.Type.DONE, null, null));
+
+        InOrder calls = org.mockito.Mockito.inOrder(ragService);
+        calls.verify(ragService).createQueryEmbedding(eq("Question"), any());
+        calls.verify(ragService).searchContext(eq(List.of(1.0f)), eq(5), any());
     }
 }

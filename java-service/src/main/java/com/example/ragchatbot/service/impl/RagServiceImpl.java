@@ -44,6 +44,17 @@ public class RagServiceImpl implements RagService {
                     traceId, topK, userMessage == null ? 0 : userMessage.length());
             return new RagContextResultDto(List.of(), 0, 0, null, minSimilarity);
         }
+        List<Float> queryEmbedding = createQueryEmbedding(userMessage, traceId);
+        return searchContext(queryEmbedding, topK, traceId);
+    }
+
+    @Override
+    public List<Float> createQueryEmbedding(String userMessage, String traceId) {
+        if (userMessage == null || userMessage.isBlank()) {
+            log.info("[rag-service] embedding:skip traceId={}, reason=invalid-input, topK={}, userMessageLength={}",
+                    traceId, 0, userMessage == null ? 0 : userMessage.length());
+            return List.of();
+        }
 
         String normalizedMessage = normalizeUserMessage(userMessage);
 
@@ -58,12 +69,30 @@ public class RagServiceImpl implements RagService {
         log.debug("[rag-service] retrieve:embedding traceId={}, queryVectorLength={}",
                 traceId, embedResponse.getEmbedding().size());
 
-        String embeddingLiteral;
         try {
-            embeddingLiteral = VectorSqlFormatter.toVectorLiteral(
-                    embedResponse.getEmbedding(), EmbeddingVectorContract.DIMENSIONS);
+            VectorSqlFormatter.validate(embedResponse.getEmbedding(), EmbeddingVectorContract.DIMENSIONS);
         } catch (IllegalArgumentException exception) {
             log.warn("[rag-service] retrieve:invalid-embedding traceId={}, reason={}", traceId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Embedding provider returned incompatible vector dimensions");
+        }
+
+        return embedResponse.getEmbedding();
+    }
+
+    @Override
+    public RagContextResultDto searchContext(List<Float> queryEmbedding, int topK, String traceId) {
+        if (queryEmbedding == null || queryEmbedding.isEmpty() || topK <= 0) {
+            log.info("[rag-service] search:skip traceId={}, reason=invalid-input, topK={}, embeddingLength={}",
+                    traceId, topK, queryEmbedding == null ? 0 : queryEmbedding.size());
+            return new RagContextResultDto(List.of(), 0, 0, null, minSimilarity);
+        }
+
+        String embeddingLiteral;
+        try {
+            embeddingLiteral = VectorSqlFormatter.toVectorLiteral(queryEmbedding, EmbeddingVectorContract.DIMENSIONS);
+        } catch (IllegalArgumentException exception) {
+            log.warn("[rag-service] search:invalid-embedding traceId={}, reason={}", traceId, exception.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Embedding provider returned incompatible vector dimensions");
         }
@@ -94,9 +123,8 @@ public class RagServiceImpl implements RagService {
                 .map(RagChunkMatchDto::getChunk)
                 .toList();
 
-        log.info("[rag-service] retrieve:done traceId={}, found={}, afterFilter={}, bestScore={}, rawQueryLength={}, normalizedQueryLength={}",
-                traceId, foundChunks, chunks.size(), bestScore,
-                userMessage.length(), normalizedMessage.length());
+        log.info("[rag-service] search:done traceId={}, found={}, afterFilter={}, bestScore={}, queryVectorLength={}",
+                traceId, foundChunks, chunks.size(), bestScore, queryEmbedding.size());
 
         return new RagContextResultDto(chunks, foundChunks, chunks.size(), bestScore, minSimilarity);
     }

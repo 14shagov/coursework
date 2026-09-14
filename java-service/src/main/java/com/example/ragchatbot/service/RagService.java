@@ -7,5 +7,9 @@ import java.util.List;
 public interface RagService {
     RagContextResultDto retrieveContext(String userMessage, int topK, String traceId);
 
+    List<Float> createQueryEmbedding(String userMessage, String traceId);
+
+    RagContextResultDto searchContext(List<Float> queryEmbedding, int topK, String traceId);
+
     String buildContextPrompt(List<KnowledgeChunk> chunks, String traceId);
 }
