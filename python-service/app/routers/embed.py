@@ -20,5 +20,5 @@ def embed(req: EmbedRequest) -> EmbedResponse:
         return EmbedResponse(embedding=vector)
     except HTTPException:
         raise
-    except Exception as ex:
+    except Exception:
         raise HTTPException(status_code=502, detail="Embedding provider error")
