@@ -1,6 +1,7 @@
 package com.example.ragchatbot.controller;
 
 import com.example.ragchatbot.dto.EmbeddingJobResponseDto;
+import com.example.ragchatbot.security.JwtUserIdExtractor;
 import com.example.ragchatbot.service.EmbeddingJobService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,7 +23,7 @@ public class EmbeddingController {
 
     @PostMapping("/jobs")
     public ResponseEntity<EmbeddingJobResponseDto> startJob(@AuthenticationPrincipal Jwt jwt) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(embeddingJobService.startJob(currentUserId(jwt)));
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(embeddingJobService.startJob(JwtUserIdExtractor.extract(jwt)));
     }
 
     @GetMapping("/jobs/{id}")
@@ -30,16 +31,4 @@ public class EmbeddingController {
         return ResponseEntity.ok(embeddingJobService.getJob(id));
     }
 
-    private long currentUserId(Jwt jwt) {
-        Object uid = jwt == null ? null : jwt.getClaim("uid");
-        if (uid instanceof Number number) {
-            return number.longValue();
-        }
-        try {
-            return Long.parseLong(String.valueOf(uid));
-        } catch (NumberFormatException exception) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    HttpStatus.UNAUTHORIZED, "JWT does not contain a valid uid claim");
-        }
-    }
 }

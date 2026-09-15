@@ -31,8 +31,6 @@ public class StreamingChatChunk {
     private String thinking;
     private String content;
     private String error;
-    /** Streaming reasoning/thought text from LLM (separate from thinking). */
-    private String reasoning;
     private boolean usedRag;
     private boolean usedContext;
     private int retrievedChunksCount;
@@ -43,14 +41,13 @@ public class StreamingChatChunk {
     private String step;
     private String status;
 
-    public StreamingChatChunk(Type type, String thinking, String content, String reasoning,
-                              boolean usedRag, boolean usedContext, int retrievedChunksCount,
+    public StreamingChatChunk(Type type, String thinking, String content,
+                               boolean usedRag, boolean usedContext, int retrievedChunksCount,
                               int usedChunks, int foundChunks, Double bestScore, Double threshold,
                               String step, String status) {
         this.type = type;
         this.thinking = thinking;
         this.content = content;
-        this.reasoning = reasoning;
         this.usedRag = usedRag;
         this.usedContext = usedContext;
         this.retrievedChunksCount = retrievedChunksCount;

@@ -43,6 +43,28 @@ import reactor.core.scheduler.Schedulers;
 @RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
 
+    private record PreparedRagResponse(RagContextResultDto context, ChatRequestDto request) {
+        boolean hasContext() {
+            return request != null;
+        }
+
+        int foundChunks() {
+            return context.getFoundChunks();
+        }
+
+        int usedChunks() {
+            return context.getUsedChunks();
+        }
+
+        Double bestScore() {
+            return context.getBestScore();
+        }
+
+        double threshold() {
+            return context.getThreshold();
+        }
+    }
+
     private final PythonServiceClient pythonServiceClient;
     private final PythonStreamingClient pythonStreamingClient;
     private final RagService ragService;
@@ -194,11 +216,11 @@ public class ChatServiceImpl implements ChatService {
 
             if ("reasoning".equals(type)) {
                 return new StreamingChatChunk(
-                        StreamingChatChunk.Type.THINKING, text, null, null,
+                        StreamingChatChunk.Type.THINKING, text, null,
                         false, false, 0, 0, 0, null, null, null, null);
             } else if ("content".equals(type)) {
                 return new StreamingChatChunk(
-                        StreamingChatChunk.Type.CONTENT, null, text, null,
+                        StreamingChatChunk.Type.CONTENT, null, text,
                         false, false, 0, 0, 0, null, null, null, null);
             } else if ("error".equals(type)) {
                 return StreamingChatChunk.error("LLM stream failed");
@@ -231,38 +253,33 @@ public class ChatServiceImpl implements ChatService {
 
     private Flux<StreamingChatChunk> continueRagStreaming(Long conversationId, RagContextResultDto contextResult,
                                                             String traceId) {
-        int chunksFound = contextResult.getFoundChunks();
-        int usedChunks = contextResult.getUsedChunks();
-        Double bestScore = contextResult.getBestScore();
-        double threshold = contextResult.getThreshold();
-        boolean fallbackWithoutContext = usedChunks == 0;
+        PreparedRagResponse prepared = prepareRagResponse(conversationId, contextResult, traceId);
+        int chunksFound = prepared.foundChunks();
+        int usedChunks = prepared.usedChunks();
+        Double bestScore = prepared.bestScore();
+        double threshold = prepared.threshold();
 
         log.info("[chat-service] handleRagStreaming:retrieved traceId={}, chunksFound={}, usedChunks={}",
                 traceId, chunksFound, usedChunks);
 
         Flux<StreamingChatChunk> searchDone = Flux.just(
                 ragStep("search", "done"),
-                new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null, null,
-                        true, !fallbackWithoutContext, chunksFound, usedChunks, chunksFound,
+                new StreamingChatChunk(StreamingChatChunk.Type.RAG_SEARCH, null, null,
+                        true, prepared.hasContext(), chunksFound, usedChunks, chunksFound,
                         bestScore, threshold, null, null),
                 ragStep("generation", "start"));
 
-        if (fallbackWithoutContext) {
+        if (!prepared.hasContext()) {
             String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
             return searchDone.concatWithValues(
-                    new StreamingChatChunk(StreamingChatChunk.Type.CONTENT, null, noDataMessage, null,
+                    new StreamingChatChunk(StreamingChatChunk.Type.CONTENT, null, noDataMessage,
                             true, false, chunksFound, usedChunks, chunksFound, bestScore, threshold, null, null),
                     ragStep("generation", "done"),
                     doneChunk(true, false, chunksFound, usedChunks, bestScore, threshold));
         }
 
-        String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
-        List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
-                ? List.of()
-                : List.of(contextPrompt);
-        ChatRequestDto request = buildChatRequest(conversationId, contextChunks);
         Flux<StreamingChatChunk> llmStream = failOnUpstreamError(parseStreamingResponse(
-                pythonStreamingClient.chatStreaming(request).timeout(Duration.ofMinutes(5))));
+                pythonStreamingClient.chatStreaming(prepared.request()).timeout(Duration.ofMinutes(5))));
 
         return searchDone
                 .concatWith(llmStream)
@@ -272,7 +289,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private StreamingChatChunk ragStep(String step, String status) {
-        return new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null, null,
+        return new StreamingChatChunk(StreamingChatChunk.Type.RAG_STEP, null, null,
                 false, false, 0, 0, 0, null, null, step, status);
     }
 
@@ -299,14 +316,6 @@ public class ChatServiceImpl implements ChatService {
                 "4. Формирую ответ из контекста.";
     }
 
-    /**
-     * Разбивает текст на слова для построчного стриминга.
-     */
-    private List<String> splitIntoWords(String text) {
-        // Разбиваем по пробелам, сохраняя переносы строк как отдельные "слова"
-        return List.of(text.split("(?<=\\s)|(?=\\s)"));
-    }
-
     private String truncate(String s, int max) {
         if (s == null) return "";
         return s.length() <= max ? s : s.substring(0, max) + "...";
@@ -315,7 +324,7 @@ public class ChatServiceImpl implements ChatService {
     private StreamingChatChunk doneChunk(boolean usedRag, boolean usedContext, int foundChunks,
                                          int usedChunks, Double bestScore, Double threshold) {
         return new StreamingChatChunk(
-                StreamingChatChunk.Type.DONE, null, null, null,
+                StreamingChatChunk.Type.DONE, null, null,
                 usedRag, usedContext, foundChunks, usedChunks, foundChunks,
                 bestScore, threshold, null, null);
     }
@@ -345,6 +354,19 @@ public class ChatServiceImpl implements ChatService {
                 .toList());
         request.setContextChunks(contextChunks);
         return request;
+    }
+
+    private PreparedRagResponse prepareRagResponse(Long conversationId, RagContextResultDto context,
+                                                     String traceId) {
+        if (context.getUsedChunks() == 0) {
+            return new PreparedRagResponse(context, null);
+        }
+
+        String contextPrompt = ragService.buildContextPrompt(context.getChunks(), traceId);
+        List<String> contextChunks = contextPrompt == null || contextPrompt.isBlank()
+                ? List.of()
+                : List.of(contextPrompt);
+        return new PreparedRagResponse(context, buildChatRequest(conversationId, contextChunks));
     }
 
     private Conversation ownedConversation(Long userId, Long conversationId) {
@@ -385,27 +407,23 @@ public class ChatServiceImpl implements ChatService {
         log.info("[chat-service] handleRag:start traceId={}, conversationId={}, userMessageLength={}, topK={}",
                 traceId, conversationId, requestLength, ragTopK);
 
-        RagContextResultDto contextResult = ragService.retrieveContext(userMessage, ragTopK, traceId);
-        int chunksFound = contextResult.getFoundChunks();
-        int usedChunks = contextResult.getUsedChunks();
-        Double bestScore = contextResult.getBestScore();
-        double threshold = contextResult.getThreshold();
-        boolean fallbackWithoutContext = (usedChunks == 0);
+        PreparedRagResponse prepared = prepareRagResponse(
+                conversationId, ragService.retrieveContext(userMessage, ragTopK, traceId), traceId);
+        RagContextResultDto contextResult = prepared.context();
+        int chunksFound = prepared.foundChunks();
+        int usedChunks = prepared.usedChunks();
+        Double bestScore = prepared.bestScore();
+        double threshold = prepared.threshold();
 
         log.info("[chat-service] handleRag:retrieved traceId={}, conversationId={}, chunksFound={}, usedChunks={}, bestScore={}, threshold={}, fallbackWithoutContext={}",
-                traceId, conversationId, chunksFound, usedChunks, bestScore, threshold, fallbackWithoutContext);
+                traceId, conversationId, chunksFound, usedChunks, bestScore, threshold, !prepared.hasContext());
 
-        if (fallbackWithoutContext) {
+        if (!prepared.hasContext()) {
             String noDataMessage = "Данные в базе знаний не найдены по вашему запросу. Уточните вопрос или добавьте релевантные материалы.";
             return new MessageResponseDto(noDataMessage, "", conversationId, true, false, chunksFound, usedChunks, bestScore, threshold);
         }
 
-        String contextPrompt = ragService.buildContextPrompt(contextResult.getChunks(), traceId);
-        List<String> contextChunks = (contextPrompt == null || contextPrompt.isBlank())
-                ? List.of()
-                : List.of(contextPrompt);
-
-        ChatResponseDto llmResponse = callLlmWithHistory(conversationId, contextChunks);
+        ChatResponseDto llmResponse = callLlm(prepared.request());
         String llmAnswer = llmResponse.getContent() == null ? "" : llmResponse.getContent();
         String thinkingText = llmResponse.getThinking();
         if (thinkingText == null || thinkingText.isBlank()) {
@@ -415,8 +433,10 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatResponseDto callLlmWithHistory(Long conversationId, List<String> contextChunks) {
-        ChatRequestDto request = buildChatRequest(conversationId, contextChunks);
+        return callLlm(buildChatRequest(conversationId, contextChunks));
+    }
 
+    private ChatResponseDto callLlm(ChatRequestDto request) {
         ChatResponseDto response = pythonServiceClient.chat(request);
         if (response == null) {
             response = new ChatResponseDto();
