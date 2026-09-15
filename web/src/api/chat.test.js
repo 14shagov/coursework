@@ -110,19 +110,6 @@ describe('conversation contract', () => {
 })
 
 describe('mock conversation messages', () => {
-  it('uses the conversation ID rather than the messages path segment', async () => {
-    const before = await mockApiRequest('/api/conversations/2/messages')
-    const response = await mockApiRequest('/api/conversations/2/messages', {
-      method: 'POST',
-      body: JSON.stringify({ content: 'Question' }),
-    })
-    const after = await mockApiRequest('/api/conversations/2/messages')
-
-    expect(response.conversationId).toBe(2)
-    expect(response.usedRag).toBe(true)
-    expect(after).toHaveLength(before.length + 2)
-  })
-
   it('persists streamed reasoning so it is available after reopening the chat', async () => {
     vi.stubEnv('VITE_MOCK', 'true')
     const before = await mockApiRequest('/api/conversations/1/messages')

@@ -8,6 +8,7 @@ export default function MessageBubble({ role, content, thinking, isStreaming, st
   const thinkingContentRef = useRef(null)
   const shouldAutoScrollRef = useRef(true)
   const hasThinking = typeof thinking === 'string' && thinking.trim().length > 0
+  const hasContent = typeof content === 'string' && content.trim().length > 0
 
   // Live reasoning opens on its first chunk. Historical reasoning stays collapsed.
   useEffect(() => {
@@ -29,8 +30,6 @@ export default function MessageBubble({ role, content, thinking, isStreaming, st
     shouldAutoScrollRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 24
   }
 
-  const showThinking = hasThinking
-
   if (isUser) {
     return (
       <div className="message message-user">
@@ -45,9 +44,9 @@ export default function MessageBubble({ role, content, thinking, isStreaming, st
 
   return (
     <div className="message message-assistant">
-      {!isUser && <div className="bubble-role">Assistant</div>}
+      <div className="bubble-role">Assistant</div>
 
-      {showThinking && (
+      {hasThinking && (
         <div className="thinking-block">
           <button
             className="thinking-toggle"
@@ -86,11 +85,13 @@ export default function MessageBubble({ role, content, thinking, isStreaming, st
         </div>
       )}
 
-      <div className={`bubble ${isUser ? 'bubble-user' : 'bubble-assistant'}`}>
-        <div className="bubble-content">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      {hasContent && (
+        <div className="bubble bubble-assistant">
+          <div className="bubble-content">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

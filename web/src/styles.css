@@ -97,49 +97,6 @@ button:disabled {
   color: var(--text-primary);
 }
 
-.btn-ghost {
-  padding: 7px 14px;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: var(--accent-subtle);
-  color: var(--text-primary);
-}
-
-.btn-primary {
-  padding: 10px 24px;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.logout-button {
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid transparent;
-}
-
-.logout-button:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.2);
-}
-
 /* ---- 6. Messages ---- */
 .messages {
   flex: 1;
@@ -1339,13 +1296,6 @@ button:disabled {
   .chat-header h1 {
     font-size: 15px;
   }
-
-  /* Mobile drawer panel */
-  .sidebar-mobile-panel-open .sidebar-mobile-panel {
-    transform: translateX(0);
-  }
-
-
 
   /* Input — avoid keyboard overlap on mobile */
   .input-row {

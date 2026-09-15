@@ -47,6 +47,60 @@ export function isNearMessagesBottom({ scrollHeight, scrollTop, clientHeight }, 
   return scrollHeight - scrollTop - clientHeight <= threshold
 }
 
+function createRagStepStates() {
+  return {
+    embedding: { status: 'pending', label: 'Эмбеддим запрос…' },
+    search: { status: 'pending', label: 'Ищем похожие фрагменты…' },
+    generation: { status: 'pending', label: 'Формируем ответ…' },
+  }
+}
+
+function ChatLayout({
+  conversations,
+  activeId,
+  onSelectConversation,
+  onNewChat,
+  onLogout,
+  loading,
+  sidebarCollapsed,
+  onToggleSidebarCollapse,
+  sidebarMobileOpen,
+  onToggleSidebarMobile,
+  children,
+}) {
+  const sidebarProps = {
+    conversations,
+    activeId,
+    onSelect: onSelectConversation,
+    onNewChat,
+    onLogout,
+    loading,
+  }
+
+  return (
+    <div className={`app-layout ${sidebarMobileOpen ? 'sidebar-mobile-panel-open' : ''}`}>
+      <div className={`sidebar-desktop ${sidebarCollapsed ? 'sidebar-desktop-collapsed' : ''}`}>
+        <Sidebar
+          {...sidebarProps}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={onToggleSidebarCollapse}
+        />
+      </div>
+
+      {sidebarMobileOpen && (
+        <>
+          <div className="sidebar-overlay sidebar-overlay-visible" onClick={onToggleSidebarMobile} />
+          <div className="sidebar-mobile-panel">
+            <Sidebar {...sidebarProps} />
+          </div>
+        </>
+      )}
+
+      <div className="main-area">{children}</div>
+    </div>
+  )
+}
+
 export default function ChatPage({ onLogout }) {
   const [conversationId, setConversationId] = useState(null)
   const [conversationMode, setConversationMode] = useState('PLAIN')
@@ -56,7 +110,6 @@ export default function ChatPage({ onLogout }) {
   const [embeddingJob, setEmbeddingJob] = useState(null)
   const [ragStepStates, setRagStepStates] = useState(null)
   const [ragNotice, setRagNotice] = useState('')
-  const [ragProgressDismissed, setRagProgressDismissed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showModeSelect, setShowModeSelect] = useState(false)
@@ -64,7 +117,6 @@ export default function ChatPage({ onLogout }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false)
   const [streamingAssistantId, setStreamingAssistantId] = useState(null)
-  const messagesEndRef = useRef(null)
   const messagesContainerRef = useRef(null)
   const autoFollowRef = useRef(true)
   const scrollFrameRef = useRef(null)
@@ -74,14 +126,12 @@ export default function ChatPage({ onLogout }) {
 
   const clearRagProgress = () => {
     ragProgressDismissedRef.current = false
-    setRagProgressDismissed(false)
     setRagStepStates(null)
     setRagNotice('')
   }
 
   const dismissRagProgress = () => {
     ragProgressDismissedRef.current = true
-    setRagProgressDismissed(true)
     setRagStepStates(null)
     setRagNotice('')
   }
@@ -90,7 +140,6 @@ export default function ChatPage({ onLogout }) {
     setConversationId(id)
     setConversationMode(mode)
     localStorage.setItem('conversationId', String(id))
-    localStorage.setItem('conversationMode', mode)
   }
 
   const scrollToBottom = (behavior = 'smooth') => {
@@ -99,7 +148,6 @@ export default function ChatPage({ onLogout }) {
       container.scrollTo({ top: container.scrollHeight, behavior })
       return
     }
-    messagesEndRef.current?.scrollIntoView({ behavior })
   }
 
   const scheduleScrollToBottom = () => {
@@ -162,7 +210,6 @@ export default function ChatPage({ onLogout }) {
       } catch (e) {
         console.error('[chat] init:error', e)
         localStorage.removeItem('conversationId')
-        localStorage.removeItem('conversationMode')
         setConversationId(null)
         setConversationMode('PLAIN')
         setShowModeSelect(true)
@@ -233,21 +280,14 @@ export default function ChatPage({ onLogout }) {
               }
 
               setRagStepStates((prev) => {
-                const base = prev || {
-                  embedding:   { status: 'pending', label: 'Эмбеддим запрос…' },
-                  search:      { status: 'pending', label: 'Ищем похожие фрагменты…' },
-                  generation:  { status: 'pending', label: 'Формируем ответ…' },
-                }
-
-                const next = {
+                const base = prev || createRagStepStates()
+                return {
                   ...base,
                   [chunk.step]: {
                     ...base[chunk.step],
                     status: chunk.status === 'start' ? 'active' : 'done',
                   },
                 }
-
-                return next
               })
             } else if (chunk.type === 'rag_search') {
               if (ragProgressDismissedRef.current) return
@@ -264,8 +304,6 @@ export default function ChatPage({ onLogout }) {
                   m.id === assistantId
                     ? {
                         ...m,
-                        content: m.content,
-                        thinking: m.thinking,
                         isStreaming: false,
                       }
                     : m
@@ -282,19 +320,12 @@ export default function ChatPage({ onLogout }) {
               // Ensure RAG steps complete even if some events were missing.
               if (conversationMode === 'RAG') {
                 setRagStepStates((prev) => {
-                  const base = prev || {
-                    embedding:   { status: 'pending', label: 'Эмбеддим запрос…' },
-                    search:      { status: 'pending', label: 'Ищем похожие фрагменты…' },
-                    generation:  { status: 'pending', label: 'Формируем ответ…' },
-                  }
-
-                  const next = {
+                  const base = prev || createRagStepStates()
+                  return {
                     embedding:   { ...base.embedding, status: 'done' },
                     search:      { ...base.search, status: 'done' },
                     generation:  { ...base.generation, status: 'done' },
                   }
-
-                  return next
                 })
               }
             }
@@ -325,7 +356,6 @@ export default function ChatPage({ onLogout }) {
     setConversationId(null)
     setConversationMode('PLAIN')
     localStorage.removeItem('conversationId')
-    localStorage.removeItem('conversationMode')
     setSidebarMobileOpen(false)
   }
 
@@ -360,40 +390,19 @@ export default function ChatPage({ onLogout }) {
   // ===== MODE SELECT SCREEN =====
   if (showModeSelect) {
     return (
-      <div className={`app-layout ${sidebarMobileOpen ? 'sidebar-mobile-panel-open' : ''}`}>
-        {/* Desktop sidebar — always visible on desktop */}
-        <div className={`sidebar-desktop ${sidebarCollapsed ? 'sidebar-desktop-collapsed' : ''}`}>
-          <Sidebar
-            conversations={conversations}
-            activeId={conversationId}
-            onSelect={loadConversation}
-            onNewChat={onNewChat}
-            onLogout={onLogout}
-            loading={loading}
-            collapsed={sidebarCollapsed}
-            onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-          />
-        </div>
-
-        {/* Mobile drawer — only rendered when open */}
-        {sidebarMobileOpen && (
-          <>
-            <div className="sidebar-overlay sidebar-overlay-visible" onClick={() => setSidebarMobileOpen(false)} />
-            <div className="sidebar-mobile-panel">
-              <Sidebar
-                conversations={conversations}
-                activeId={conversationId}
-                onSelect={loadConversation}
-                onNewChat={onNewChat}
-                onLogout={onLogout}
-                loading={loading}
-              />
-            </div>
-          </>
-        )}
-
-        <div className="main-area">
-          <div className="chat-container mode-select-container">
+      <ChatLayout
+        conversations={conversations}
+        activeId={conversationId}
+        onSelectConversation={loadConversation}
+        onNewChat={onNewChat}
+        onLogout={onLogout}
+        loading={loading}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebarCollapse={() => setSidebarCollapsed((v) => !v)}
+        sidebarMobileOpen={sidebarMobileOpen}
+        onToggleSidebarMobile={() => setSidebarMobileOpen(false)}
+      >
+        <div className="chat-container mode-select-container">
             <div className="chat-header">
               <button className="btn-icon btn-icon-mobile" onClick={() => setSidebarMobileOpen((v) => !v)} title="Меню">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -438,48 +447,26 @@ export default function ChatPage({ onLogout }) {
               {loading && <div className="loading"><div className="spinner" /></div>}
               {error && <div className="error">{error}</div>}
             </div>
-          </div>
         </div>
-      </div>
+      </ChatLayout>
     )
   }
 
   // ===== CHAT SCREEN =====
   return (
-    <div className={`app-layout ${sidebarMobileOpen ? 'sidebar-mobile-panel-open' : ''}`}>
-      {/* Desktop sidebar */}
-      <div className={`sidebar-desktop ${sidebarCollapsed ? 'sidebar-desktop-collapsed' : ''}`}>
-        <Sidebar
-          conversations={conversations}
-          activeId={conversationId}
-          onSelect={loadConversation}
-          onNewChat={onNewChat}
-          onLogout={onLogout}
-          loading={loading}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-        />
-      </div>
-
-      {/* Mobile drawer */}
-      {sidebarMobileOpen && (
-        <>
-          <div className="sidebar-overlay sidebar-overlay-visible" onClick={() => setSidebarMobileOpen(false)} />
-          <div className="sidebar-mobile-panel">
-            <Sidebar
-              conversations={conversations}
-              activeId={conversationId}
-              onSelect={loadConversation}
-              onNewChat={onNewChat}
-              onLogout={onLogout}
-              loading={loading}
-            />
-          </div>
-        </>
-      )}
-
-      <div className="main-area">
-        <div className="chat-container">
+    <ChatLayout
+      conversations={conversations}
+      activeId={conversationId}
+      onSelectConversation={loadConversation}
+      onNewChat={onNewChat}
+      onLogout={onLogout}
+      loading={loading}
+      sidebarCollapsed={sidebarCollapsed}
+      onToggleSidebarCollapse={() => setSidebarCollapsed((v) => !v)}
+      sidebarMobileOpen={sidebarMobileOpen}
+      onToggleSidebarMobile={() => setSidebarMobileOpen((v) => !v)}
+    >
+      <div className="chat-container">
           <div className="chat-header">
             <button className="btn-icon btn-icon-mobile" onClick={() => setSidebarMobileOpen((v) => !v)} title="Меню">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -512,7 +499,7 @@ export default function ChatPage({ onLogout }) {
 
           <div className="messages" key={conversationId} ref={messagesContainerRef} onScroll={onMessagesScroll}>
             {/* RAG progress — real steps from SSE events */}
-            {conversationMode === 'RAG' && ragStepStates && !ragProgressDismissed && (
+            {conversationMode === 'RAG' && ragStepStates && (
               <div className="rag-progress">
                 <div className="rag-progress-header">
                   <span>Обработка RAG</span>
@@ -520,8 +507,8 @@ export default function ChatPage({ onLogout }) {
                     ×
                   </button>
                 </div>
-                {Object.entries(ragStepStates).map(([key, step], idx) => (
-                  <div className={`rag-step rag-step-${step.status}`} key={idx}>
+                {Object.entries(ragStepStates).map(([stepName, step]) => (
+                  <div className={`rag-step rag-step-${step.status}`} key={stepName}>
                     {step.status === 'active' && <span className="rag-step-icon spinner-small" />}
                     {step.status === 'done' && <span className="rag-step-icon rag-check">✓</span>}
                     {step.status === 'error' && <span className="rag-step-icon rag-error">✗</span>}
@@ -551,14 +538,13 @@ export default function ChatPage({ onLogout }) {
                 }
               />
             ))}
-            {loading && !streamingAssistantId && (
+            {loading && !streamingAssistantId && messages.length === 0 && (
               <div className="message assistant">
                 <div className="bubble bubble-assistant">
                   <div className="spinner" />
                 </div>
               </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
 
           {error && <div className="error">{error}</div>}
@@ -583,8 +569,7 @@ export default function ChatPage({ onLogout }) {
               </svg>
             </button>
           </form>
-        </div>
       </div>
-    </div>
+    </ChatLayout>
   )
 }

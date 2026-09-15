@@ -1,6 +1,6 @@
-export default function Sidebar({ conversations, activeId, onSelect, onNewChat, onLogout, loading, className, collapsed, onToggleCollapse }) {
+export default function Sidebar({ conversations, activeId, onSelect, onNewChat, onLogout, loading, collapsed, onToggleCollapse }) {
   return (
-    <aside className={`sidebar ${className || ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
+    <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <div className="sidebar-header">
         <button className="btn-new-chat" onClick={onNewChat} disabled={loading} title={collapsed ? 'Новый чат' : undefined}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

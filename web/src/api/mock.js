@@ -22,14 +22,6 @@ const mockMessages = {
 
 let mockEmbeddingJob = null
 
-// Ответы для разных режимов
-const plainAnswer = 'Это mock-ответ. Подключите бэкенд для реальных ответов.'
-const plainThinking = 'Пользователь спрашивает: «{query}»\n\n**Анализ:** общий вопрос, не требует RAG.\n**Сложность:** low.\n\nГенерирую ответ на основе базовых знаний.'
-
-    const ragAnswer = 'Экзопланеты — это планеты за пределами нашей Солнечной системы. Согласно базе знаний, они обнаруживаются транзитным методом, методом радиальных скоростей и прямым наблюдением. Большинство известных экзопланет — это горячие юпитеры, но интерес представляют и землеподобные объекты в зоне обитания.'
-
-const ragThinking = 'Запрос: «Что такое экзопланета?» — тип: definition.\n\n1. Эмбеддинг запроса (dim=3072) готов.\n2. Поиск по БД: top-5, порог 0.72 → 3 чанка.\n3. Источники: NASA Exoplanet Archive, exoplanets.eu, Wikipedia.\n4. Формирую ответ из чанков #1, #2.'
-
 function wait(ms = MOCK_DELAY) {
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -93,37 +85,6 @@ export async function mockApiRequest(path, options = {}) {
     const id = conversationIdFromMessagesPath(pathname)
     await wait()
     return [...(mockMessages[id] || [])]
-  }
-
-  // send message
-  if (/^\/api\/conversations\/\d+\/messages$/.test(pathname) && method === 'POST') {
-    const body = JSON.parse(options.body || '{}')
-    const id = conversationIdFromMessagesPath(pathname)
-    const userMsg = { id: Date.now(), role: 'USER', content: body.content, createdAt: new Date().toISOString() }
-    await wait(600)
-
-    const conv = mockConversations.find((c) => c.id === id)
-    const isRag = conv?.mode === 'RAG'
-    let answer, usedRag, usedContext, retrievedChunksCount, thinking
-
-    if (isRag) {
-      usedRag = true
-      usedContext = true
-      retrievedChunksCount = 3
-      answer = ragAnswer
-      thinking = ragThinking
-    } else {
-      usedRag = false
-      usedContext = false
-      retrievedChunksCount = 0
-      answer = plainAnswer
-      thinking = plainThinking.replace('{query}', body.content)
-    }
-
-    const assistantMsg = { id: Date.now() + 1, role: 'ASSISTANT', content: answer, thinking, createdAt: new Date().toISOString() }
-    if (!mockMessages[id]) mockMessages[id] = []
-    mockMessages[id].push(userMsg, assistantMsg)
-    return { content: answer, conversationId: id, usedRag, usedContext, retrievedChunksCount, thinking }
   }
 
   if (pathname === '/api/admin/embeddings/jobs' && method === 'POST') {
