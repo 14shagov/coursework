@@ -46,9 +46,11 @@ def chat(req: ChatRequest) -> ChatResponse:
     request_id = str(uuid4())
     try:
         messages = _build_provider_messages(req, request_id=request_id, endpoint="/chat")
-        answer, thinking = llm_client.create_chat_completion(messages)
+        answer, thinking = llm_client.create_chat_completion(messages, req.llmModel)
         logger.info("/chat completed: request_id=%s provider_outcome=success", request_id)
         return ChatResponse(content=answer, thinking=thinking)
+    except ValueError as exception:
+        raise HTTPException(status_code=400, detail=str(exception))
     except Exception as exception:
         logger.error("LLM provider error in /chat: request_id=%s error_type=%s", request_id,
                      type(exception).__name__)
@@ -66,7 +68,7 @@ def _stream_generator(req: ChatRequest):
     request_id = str(uuid4())
     try:
         messages = _build_provider_messages(req, request_id=request_id, endpoint="/chat/stream")
-        for chunk_type, text in llm_client.stream_chat_completion(messages):
+        for chunk_type, text in llm_client.stream_chat_completion(messages, req.llmModel):
             yield _sse_event(chunk_type, text)
         logger.info("/chat/stream completed: request_id=%s provider_outcome=success", request_id)
     except Exception as exception:

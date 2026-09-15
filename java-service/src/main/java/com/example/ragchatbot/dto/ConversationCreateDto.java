@@ -13,4 +13,6 @@ public class ConversationCreateDto {
     @NotBlank
     @Size(max = 255)
     private String title;
+
+    private String llmModel;
 }

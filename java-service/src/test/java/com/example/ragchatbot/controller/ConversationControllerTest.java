@@ -26,7 +26,7 @@ class ConversationControllerTest {
         Jwt jwt = new Jwt("token", Instant.now(), Instant.now().plusSeconds(60),
                 Map.of("alg", "HS256"), Map.of("uid", 7));
         when(chatService.getConversation(7L, 22L))
-                .thenReturn(new ConversationResponseDto(22L, 7L, "PLAIN", "Chat", Instant.now()));
+                .thenReturn(new ConversationResponseDto(22L, 7L, "PLAIN", "Chat", Instant.now(), "Qwen3.6-35B-A3B"));
 
         controller.getConversation(jwt, 22L);
 

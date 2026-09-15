@@ -19,6 +19,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     contextChunks: Optional[List[str]] = None
+    llmModel: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

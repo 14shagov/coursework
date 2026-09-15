@@ -901,6 +901,30 @@ button:disabled {
   color: var(--text-secondary);
 }
 
+.model-select-field {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.model-select-field select,
+.chat-model-select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.model-select-field select:disabled,
+.chat-model-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .mode-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -986,6 +1010,11 @@ button:disabled {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.chat-model-select {
+  max-width: 220px;
+  font-size: 12px;
 }
 
 .embeddings-init-button {
@@ -1295,6 +1324,10 @@ button:disabled {
 
   .chat-header h1 {
     font-size: 15px;
+  }
+
+  .chat-model-select {
+    max-width: 130px;
   }
 
   /* Input — avoid keyboard overlap on mobile */

@@ -4,17 +4,22 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EMBEDDING_DIMENSIONS = 3072
+DEFAULT_CHAT_MODELS = (
+    "DeepSeek-V4-Flash,DeepSeek-V4-Pro,glm-4.5-air,"
+    "Qwen3.6-35B-A3B,step-3.7-flash"
+)
 
 
 class Settings(BaseSettings):
     github_token: str = Field(..., min_length=1)
     embedding_github_token: str | None = None
-    llm_model: str = Field("openai/gpt-4.1", min_length=1)
+    llm_model: str = Field("Qwen3.6-35B-A3B", min_length=1)
     embedding_model: str = Field("openai/text-embedding-3-large", min_length=1)
     chat_api_base_url: str = Field(..., min_length=1)
     embedding_api_base_url: str = Field(..., min_length=1)
     llm_temperature: float = 0.0
     llm_reasoning_effort: str = Field("high", min_length=1)
+    llm_allowed_models: str = Field(DEFAULT_CHAT_MODELS, min_length=1)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -39,6 +44,10 @@ class Settings(BaseSettings):
     def effective_embedding_token(self) -> str:
         token = (self.embedding_github_token or self.github_token).strip()
         return token or self.github_token
+
+    @property
+    def allowed_chat_models(self) -> tuple[str, ...]:
+        return tuple(model.strip() for model in self.llm_allowed_models.split(",") if model.strip())
 
 
 settings = Settings()

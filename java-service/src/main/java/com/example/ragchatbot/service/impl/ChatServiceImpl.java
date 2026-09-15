@@ -16,6 +16,7 @@ import com.example.ragchatbot.repository.ConversationRepository;
 import com.example.ragchatbot.repository.UserRepository;
 import com.example.ragchatbot.repository.MessageRepository;
 import com.example.ragchatbot.service.ChatService;
+import com.example.ragchatbot.service.ChatModelCatalog;
 import com.example.ragchatbot.dto.ConversationMode;
 import com.example.ragchatbot.client.PythonServiceClient;
 import com.example.ragchatbot.client.PythonStreamingClient;
@@ -71,6 +72,7 @@ public class ChatServiceImpl implements ChatService {
     private final ConversationRepository conversationRepository;
     private final UserRepository userRepository;
     private final MessageRepository messageRepository;
+    private final ChatModelCatalog chatModelCatalog;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${chat.rag.top-k:5}")
@@ -80,18 +82,20 @@ public class ChatServiceImpl implements ChatService {
     private int maxHistoryMessages;
 
     @Override
-    public ConversationResponseDto createConversation(Long userId, String title, ConversationMode conversationMode) {
+    public ConversationResponseDto createConversation(Long userId, String title, ConversationMode conversationMode,
+                                                      String llmModel) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
         Conversation conversation = new Conversation();
         conversation.setUser(user);
         conversation.setMode(conversationMode);
         conversation.setTitle(title);
+        conversation.setLlmModel(chatModelCatalog.resolve(llmModel));
         conversation.setCreatedAt(Instant.now());
         Conversation saved = conversationRepository.save(conversation);
         log.info("[chat-service] createConversation saved conversationId={}, userId={}, mode={}, title={}",
                 saved.getId(), userId, conversationMode, title);
-        return new ConversationResponseDto(saved.getId(), saved.getUser().getId(), saved.getMode().name(), saved.getTitle(), saved.getCreatedAt());
+        return toConversationResponse(saved);
     }
 
     @Override
@@ -104,6 +108,7 @@ public class ChatServiceImpl implements ChatService {
                 conversationId,
                 conversation.getMode(), content.length());
         ConversationMode requestedMode = conversation.getMode();
+        String llmModel = chatModelCatalog.resolve(conversation.getLlmModel());
 
         // Сохраняем пользовательское сообщение
         saveMessage(conversation, MessageRole.USER, content, null);
@@ -111,10 +116,10 @@ public class ChatServiceImpl implements ChatService {
         MessageResponseDto response;
         if (requestedMode == ConversationMode.RAG) {
             log.info("[chat-service] sendMessage:route=RAG traceId={}, conversationId={}", traceId, conversationId);
-            response = handleRag(conversationId, content, traceId);
+            response = handleRag(conversationId, content, traceId, llmModel);
         } else {
             log.info("[chat-service] sendMessage:route=PLAIN traceId={}, conversationId={}", traceId, conversationId);
-            response = handlePlain(conversationId, content, traceId);
+            response = handlePlain(conversationId, content, traceId, llmModel);
         }
 
         // Сохраняем ответ ассистента
@@ -130,6 +135,7 @@ public class ChatServiceImpl implements ChatService {
     public Flux<StreamingChatChunk> sendMessageStreaming(Long userId, Long conversationId, String content) {
         Conversation conversation = ownedConversation(userId, conversationId);
         String traceId = UUID.randomUUID().toString();
+        String llmModel = chatModelCatalog.resolve(conversation.getLlmModel());
         log.info("[chat-service] sendMessageStreaming:start traceId={}, conversationId={}, mode={}",
                 traceId, conversationId, conversation.getMode());
 
@@ -139,10 +145,10 @@ public class ChatServiceImpl implements ChatService {
         Flux<StreamingChatChunk> stream;
         if (conversation.getMode() == ConversationMode.RAG) {
             log.info("[chat-service] sendMessageStreaming:route=RAG traceId={}, conversationId={}", traceId, conversationId);
-            stream = handleRagStreaming(conversationId, content, traceId);
+            stream = handleRagStreaming(conversationId, content, traceId, llmModel);
         } else {
             log.info("[chat-service] sendMessageStreaming:route=PLAIN traceId={}, conversationId={}", traceId, conversationId);
-            stream = handlePlainStreaming(conversationId, content, traceId);
+            stream = handlePlainStreaming(conversationId, content, traceId, llmModel);
         }
 
         AtomicReference<StringBuilder> answer = new AtomicReference<>(new StringBuilder());
@@ -173,10 +179,11 @@ public class ChatServiceImpl implements ChatService {
      * PLAIN streaming: uses real LLM streaming.
      * Yields reasoning chunks as THINKING type, content chunks as DONE with content, then DONE with nulls.
      */
-    private Flux<StreamingChatChunk> handlePlainStreaming(Long conversationId, String userMessage, String traceId) {
+    private Flux<StreamingChatChunk> handlePlainStreaming(Long conversationId, String userMessage, String traceId,
+                                                           String llmModel) {
         log.info("[chat-service] handlePlainStreaming conversationId={}", conversationId);
 
-        ChatRequestDto request = buildChatRequest(conversationId, null);
+        ChatRequestDto request = buildChatRequest(conversationId, null, llmModel);
 
         // Use streaming endpoint — each SSE event is: data: {"type":"reasoning|content|done","text":"..."}
         Flux<String> rawStream = pythonStreamingClient.chatStreaming(request)
@@ -236,7 +243,8 @@ public class ChatServiceImpl implements ChatService {
     /**
      * RAG streaming: эмбеддинг + поиск → real LLM streaming (reasoning + content).
      */
-    private Flux<StreamingChatChunk> handleRagStreaming(Long conversationId, String userMessage, String traceId) {
+    private Flux<StreamingChatChunk> handleRagStreaming(Long conversationId, String userMessage, String traceId,
+                                                         String llmModel) {
         log.info("[chat-service] handleRagStreaming:start traceId={}", traceId);
 
         return Flux.just(ragStep("embedding", "start"))
@@ -248,12 +256,12 @@ public class ChatServiceImpl implements ChatService {
                                 .concatWith(Mono.fromCallable(() -> ragService.searchContext(embedding, ragTopK, traceId))
                                         .subscribeOn(Schedulers.boundedElastic())
                                         .flatMapMany(contextResult -> continueRagStreaming(
-                                                conversationId, contextResult, traceId)))));
+                                                conversationId, contextResult, traceId, llmModel)))));
     }
 
     private Flux<StreamingChatChunk> continueRagStreaming(Long conversationId, RagContextResultDto contextResult,
-                                                            String traceId) {
-        PreparedRagResponse prepared = prepareRagResponse(conversationId, contextResult, traceId);
+                                                            String traceId, String llmModel) {
+        PreparedRagResponse prepared = prepareRagResponse(conversationId, contextResult, traceId, llmModel);
         int chunksFound = prepared.foundChunks();
         int usedChunks = prepared.usedChunks();
         Double bestScore = prepared.bestScore();
@@ -339,7 +347,7 @@ public class ChatServiceImpl implements ChatService {
         });
     }
 
-    private ChatRequestDto buildChatRequest(Long conversationId, List<String> contextChunks) {
+    private ChatRequestDto buildChatRequest(Long conversationId, List<String> contextChunks, String llmModel) {
         List<Message> history = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
         List<Message> retainedHistory = history;
         if (history.size() > maxHistoryMessages) {
@@ -353,11 +361,12 @@ public class ChatServiceImpl implements ChatService {
                 .map(message -> new ChatMessageDto(message.getRole().name().toLowerCase(), message.getContent()))
                 .toList());
         request.setContextChunks(contextChunks);
+        request.setLlmModel(llmModel);
         return request;
     }
 
     private PreparedRagResponse prepareRagResponse(Long conversationId, RagContextResultDto context,
-                                                     String traceId) {
+                                                     String traceId, String llmModel) {
         if (context.getUsedChunks() == 0) {
             return new PreparedRagResponse(context, null);
         }
@@ -366,7 +375,7 @@ public class ChatServiceImpl implements ChatService {
         List<String> contextChunks = contextPrompt == null || contextPrompt.isBlank()
                 ? List.of()
                 : List.of(contextPrompt);
-        return new PreparedRagResponse(context, buildChatRequest(conversationId, contextChunks));
+        return new PreparedRagResponse(context, buildChatRequest(conversationId, contextChunks, llmModel));
     }
 
     private Conversation ownedConversation(Long userId, Long conversationId) {
@@ -389,11 +398,11 @@ public class ChatServiceImpl implements ChatService {
         return value == null || value.isBlank() ? null : value;
     }
 
-    private MessageResponseDto handlePlain(Long conversationId, String userMessage, String traceId) {
+    private MessageResponseDto handlePlain(Long conversationId, String userMessage, String traceId, String llmModel) {
         log.info("[chat-service] handlePlain conversationId={}, userMessageLength={}",
                 conversationId, userMessage == null ? 0 : userMessage.length());
         String thinkingText = generateThinkingText(userMessage, false);
-        ChatResponseDto llmResponse = callLlmWithHistory(conversationId, null);
+        ChatResponseDto llmResponse = callLlmWithHistory(conversationId, null, llmModel);
         String answer = llmResponse.getContent() == null ? "" : llmResponse.getContent();
         String thinking = llmResponse.getThinking();
         if (thinking == null || thinking.isBlank()) {
@@ -402,13 +411,13 @@ public class ChatServiceImpl implements ChatService {
         return new MessageResponseDto(answer, thinking, conversationId, false, false, 0, 0, null, null);
     }
 
-    private MessageResponseDto handleRag(Long conversationId, String userMessage, String traceId) {
+    private MessageResponseDto handleRag(Long conversationId, String userMessage, String traceId, String llmModel) {
         int requestLength = userMessage == null ? 0 : userMessage.length();
         log.info("[chat-service] handleRag:start traceId={}, conversationId={}, userMessageLength={}, topK={}",
                 traceId, conversationId, requestLength, ragTopK);
 
         PreparedRagResponse prepared = prepareRagResponse(
-                conversationId, ragService.retrieveContext(userMessage, ragTopK, traceId), traceId);
+                conversationId, ragService.retrieveContext(userMessage, ragTopK, traceId), traceId, llmModel);
         RagContextResultDto contextResult = prepared.context();
         int chunksFound = prepared.foundChunks();
         int usedChunks = prepared.usedChunks();
@@ -432,8 +441,8 @@ public class ChatServiceImpl implements ChatService {
         return new MessageResponseDto(llmAnswer, thinkingText, conversationId, true, true, chunksFound, usedChunks, bestScore, threshold);
     }
 
-    private ChatResponseDto callLlmWithHistory(Long conversationId, List<String> contextChunks) {
-        return callLlm(buildChatRequest(conversationId, contextChunks));
+    private ChatResponseDto callLlmWithHistory(Long conversationId, List<String> contextChunks, String llmModel) {
+        return callLlm(buildChatRequest(conversationId, contextChunks, llmModel));
     }
 
     private ChatResponseDto callLlm(ChatRequestDto request) {
@@ -449,15 +458,27 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public ConversationResponseDto getConversation(Long userId, Long id) {
         Conversation conversation = ownedConversation(userId, id);
-        return new ConversationResponseDto(conversation.getId(), conversation.getUser().getId(), conversation.getMode().name(),
-                conversation.getTitle(), conversation.getCreatedAt());
+        return toConversationResponse(conversation);
     }
 
     @Override
     public List<ConversationResponseDto> listConversations(Long userId) {
         return conversationRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                .map(c -> new ConversationResponseDto(c.getId(), c.getUser().getId(), c.getMode().name(), c.getTitle(), c.getCreatedAt()))
+                .map(this::toConversationResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public ConversationResponseDto updateConversationModel(Long userId, Long conversationId, String llmModel) {
+        Conversation conversation = ownedConversation(userId, conversationId);
+        conversation.setLlmModel(chatModelCatalog.resolve(llmModel));
+        return toConversationResponse(conversationRepository.save(conversation));
+    }
+
+    @Override
+    public List<com.example.ragchatbot.dto.ChatModelDto> getChatModels() {
+        return chatModelCatalog.availableModels();
     }
 
     @Override
@@ -466,5 +487,10 @@ public class ChatServiceImpl implements ChatService {
         return messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).stream()
                 .map(m -> new MessageDto(m.getId(), m.getRole().name(), m.getContent(), m.getThinking(), m.getCreatedAt()))
                 .toList();
+    }
+
+    private ConversationResponseDto toConversationResponse(Conversation conversation) {
+        return new ConversationResponseDto(conversation.getId(), conversation.getUser().getId(), conversation.getMode().name(),
+                conversation.getTitle(), conversation.getCreatedAt(), chatModelCatalog.resolve(conversation.getLlmModel()));
     }
 }

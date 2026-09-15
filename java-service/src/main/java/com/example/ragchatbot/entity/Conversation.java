@@ -31,4 +31,5 @@ public class Conversation {
 
     private String title;
     private Instant createdAt;
+    private String llmModel;
 }

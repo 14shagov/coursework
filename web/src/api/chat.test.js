@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createConversation,
   getEmbeddingJob,
+  listChatModels,
   listConversations,
   startEmbeddingJob,
   startMessageStreaming,
+  updateConversationModel,
 } from './chat'
 import { mockApiRequest } from './mock'
 
@@ -91,12 +93,22 @@ describe('conversation contract', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('does not expose user identity or message mode in conversation requests', async () => {
-    await createConversation('RAG')
+    await createConversation('RAG', 'Qwen3.6-35B-A3B')
     await listConversations()
 
     expect(fetch.mock.calls[0][0]).toBe('/api/conversations')
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ mode: 'RAG', title: 'Web Chat' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ mode: 'RAG', title: 'Web Chat', llmModel: 'Qwen3.6-35B-A3B' })
     expect(fetch.mock.calls[1][0]).toBe('/api/conversations')
+  })
+
+  it('loads model catalog and changes a conversation model', async () => {
+    await listChatModels()
+    await updateConversationModel(42, 'DeepSeek-V4-Flash')
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/conversations/models')
+    expect(fetch.mock.calls[1][0]).toBe('/api/conversations/42/model')
+    expect(fetch.mock.calls[1][1].method).toBe('PUT')
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ llmModel: 'DeepSeek-V4-Flash' })
   })
 
   it('starts and reads the global embedding job', async () => {

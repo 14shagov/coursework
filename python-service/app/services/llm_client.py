@@ -78,16 +78,23 @@ class LlmClient:
         )
         return response.data[0].embedding
 
-    def create_chat_completion(self, messages: list[dict]) -> tuple[str, str | None]:
+    def resolve_chat_model(self, requested_model: str | None) -> str:
+        model = (requested_model or settings.llm_model).strip()
+        if model not in settings.allowed_chat_models:
+            raise ValueError("Unsupported chat model")
+        return model
+
+    def create_chat_completion(self, messages: list[dict], model: str | None = None) -> tuple[str, str | None]:
+        model = self.resolve_chat_model(model)
         logger.info(
             "LLM chat request started: endpoint_url=%s model=%s messages=%d",
             self.chat_completions_url,
-            settings.llm_model,
+            model,
             len(messages),
         )
 
         response = self.chat_client.chat.completions.create(
-            model=settings.llm_model,
+            model=model,
             messages=messages,
             temperature=settings.llm_temperature,
             extra_body={"reasoning_effort": settings.llm_reasoning_effort},
@@ -120,14 +127,14 @@ class LlmClient:
 
         logger.info(
             "LLM chat request succeeded: model=%s choices=%d has_thinking=%s",
-            settings.llm_model,
+            model,
             len(response.choices),
             reasoning is not None,
         )
 
         return content, reasoning
 
-    def stream_chat_completion(self, messages: list[dict]):
+    def stream_chat_completion(self, messages: list[dict], model: str | None = None):
         """Stream chat completion, yielding (chunk_type, text) tuples.
         
         chunk_type is one of:
@@ -135,15 +142,16 @@ class LlmClient:
           - "content"   — text from delta.content
           - "done"      — final marker
         """
+        model = self.resolve_chat_model(model)
         logger.info(
             "LLM streaming chat request started: endpoint_url=%s model=%s messages=%d",
             self.chat_completions_url,
-            settings.llm_model,
+            model,
             len(messages),
         )
 
         stream = self.chat_client.chat.completions.create(
-            model=settings.llm_model,
+            model=model,
             messages=messages,
             temperature=settings.llm_temperature,
             stream=True,

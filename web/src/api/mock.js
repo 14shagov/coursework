@@ -3,10 +3,17 @@
 
 const MOCK_DELAY = 400
 const MOCK_USER_ID = 999
+const mockChatModels = [
+  { id: 'DeepSeek-V4-Flash', defaultModel: false },
+  { id: 'DeepSeek-V4-Pro', defaultModel: false },
+  { id: 'glm-4.5-air', defaultModel: false },
+  { id: 'Qwen3.6-35B-A3B', defaultModel: true },
+  { id: 'step-3.7-flash', defaultModel: false },
+]
 
 const mockConversations = [
-  { id: 1, userId: MOCK_USER_ID, mode: 'PLAIN', title: 'Общий чат', createdAt: new Date().toISOString() },
-  { id: 2, userId: MOCK_USER_ID, mode: 'RAG', title: 'Астрономия', createdAt: new Date().toISOString() },
+  { id: 1, userId: MOCK_USER_ID, mode: 'PLAIN', title: 'Общий чат', llmModel: 'Qwen3.6-35B-A3B', createdAt: new Date().toISOString() },
+  { id: 2, userId: MOCK_USER_ID, mode: 'RAG', title: 'Астрономия', llmModel: 'Qwen3.6-35B-A3B', createdAt: new Date().toISOString() },
 ]
 
 const mockMessages = {
@@ -60,15 +67,34 @@ export async function mockApiRequest(path, options = {}) {
     return mockConversations.map(c => ({ ...c }))
   }
 
+  if (pathname === '/api/conversations/models' && method === 'GET') {
+    await wait()
+    return mockChatModels.map((model) => ({ ...model }))
+  }
+
   // conversations create
   if (pathname === '/api/conversations' && method === 'POST') {
     const body = JSON.parse(options.body || '{}')
     const newId = Date.now()
-    const conv = { id: newId, userId: MOCK_USER_ID, mode: body.mode || 'PLAIN', title: body.title || 'Новый чат', createdAt: new Date().toISOString() }
+    const conv = { id: newId, userId: MOCK_USER_ID, mode: body.mode || 'PLAIN', title: body.title || 'Новый чат', llmModel: body.llmModel || 'Qwen3.6-35B-A3B', createdAt: new Date().toISOString() }
     mockConversations.push(conv)
     mockMessages[newId] = []
     await wait()
     return conv
+  }
+
+  if (/^\/api\/conversations\/\d+\/model$/.test(pathname) && method === 'PUT') {
+    const id = Number(pathname.split('/')[3])
+    const conv = mockConversations.find((item) => item.id === id)
+    if (!conv) { await wait(); throw new Error('Conversation not found') }
+    const body = JSON.parse(options.body || '{}')
+    if (!mockChatModels.some((model) => model.id === body.llmModel)) {
+      await wait()
+      throw new Error('Unsupported chat model')
+    }
+    conv.llmModel = body.llmModel
+    await wait()
+    return { ...conv }
   }
 
   // single conversation

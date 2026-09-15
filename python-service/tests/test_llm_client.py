@@ -58,3 +58,22 @@ def test_streaming_request_splits_qwen_thinking_tags_across_content_chunks() -> 
     events = list(client.stream_chat_completion([{"role": "user", "content": "Question"}]))
 
     assert events == [("reasoning", "Thought"), ("content", "Answer"), ("done", "")]
+
+
+def test_streaming_request_uses_selected_allowed_model() -> None:
+    stream = [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="Answer"))])]
+    client = LlmClient()
+    client.chat_client, completions = fake_client(stream)
+
+    list(client.stream_chat_completion([{"role": "user", "content": "Question"}], "DeepSeek-V4-Flash"))
+
+    assert completions.calls[0]["model"] == "DeepSeek-V4-Flash"
+
+
+def test_rejects_model_outside_allow_list() -> None:
+    client = LlmClient()
+
+    import pytest
+
+    with pytest.raises(ValueError, match="Unsupported chat model"):
+        client.resolve_chat_model("Qwen3.8-27B")

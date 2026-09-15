@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   createConversation,
+  listChatModels,
   listConversations,
   getConversation,
   getMessages,
   getEmbeddingJob,
   startEmbeddingJob,
   startMessageStreaming,
+  updateConversationModel,
 } from '../api/chat'
 import MessageBubble from '../components/MessageBubble'
 import Sidebar from '../components/Sidebar'
@@ -104,6 +106,9 @@ function ChatLayout({
 export default function ChatPage({ onLogout }) {
   const [conversationId, setConversationId] = useState(null)
   const [conversationMode, setConversationMode] = useState('PLAIN')
+  const [chatModels, setChatModels] = useState([])
+  const [selectedLlmModel, setSelectedLlmModel] = useState('')
+  const [modelChangeLoading, setModelChangeLoading] = useState(false)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [embeddingInitLoading, setEmbeddingInitLoading] = useState(false)
@@ -142,6 +147,16 @@ export default function ChatPage({ onLogout }) {
     localStorage.setItem('conversationId', String(id))
   }
 
+  const defaultChatModel = (models) => models.find((model) => model.defaultModel)?.id || models[0]?.id || ''
+
+  const loadChatModels = async () => {
+    const models = await listChatModels()
+    const availableModels = Array.isArray(models) ? models : []
+    setChatModels(availableModels)
+    setSelectedLlmModel((current) => current || defaultChatModel(availableModels))
+    return availableModels
+  }
+
   const scrollToBottom = (behavior = 'smooth') => {
     const container = messagesContainerRef.current
     if (container) {
@@ -172,6 +187,8 @@ export default function ChatPage({ onLogout }) {
     autoFollowRef.current = true
     try {
       persistConversation(conv.id, conv.mode || 'PLAIN')
+      const convData = await getConversation(conv.id)
+      setSelectedLlmModel(convData?.llmModel || defaultChatModel(chatModels))
       const history = await getMessages(conv.id)
       setMessages(Array.isArray(history) ? history : [])
       setShowModeSelect(false)
@@ -198,10 +215,12 @@ export default function ChatPage({ onLogout }) {
       setLoading(true)
       setError('')
       try {
+        const models = await loadChatModels()
         await refreshConversations()
         if (savedId) {
           const convData = await getConversation(savedId)
           persistConversation(Number(savedId), convData?.mode || 'PLAIN')
+          setSelectedLlmModel(convData?.llmModel || defaultChatModel(models))
           const history = await getMessages(savedId)
           setMessages(Array.isArray(history) ? history : [])
         } else {
@@ -236,8 +255,9 @@ export default function ChatPage({ onLogout }) {
     setLoading(true)
     setError('')
     try {
-      const created = await createConversation(mode)
+      const created = await createConversation(mode, selectedLlmModel)
       persistConversation(created.id, created?.mode || mode)
+      setSelectedLlmModel(created?.llmModel || selectedLlmModel)
       setMessages([])
       setShowModeSelect(false)
       await refreshConversations()
@@ -355,8 +375,28 @@ export default function ChatPage({ onLogout }) {
     setMessages([])
     setConversationId(null)
     setConversationMode('PLAIN')
+    setSelectedLlmModel(defaultChatModel(chatModels))
     localStorage.removeItem('conversationId')
     setSidebarMobileOpen(false)
+  }
+
+  const onChangeChatModel = async (event) => {
+    const llmModel = event.target.value
+    if (conversationId == null) {
+      setSelectedLlmModel(llmModel)
+      return
+    }
+
+    setModelChangeLoading(true)
+    setError('')
+    try {
+      const updated = await updateConversationModel(conversationId, llmModel)
+      setSelectedLlmModel(updated?.llmModel || llmModel)
+    } catch (e) {
+      setError('Ошибка смены модели: ' + e.message)
+    } finally {
+      setModelChangeLoading(false)
+    }
   }
 
   const onInitEmbeddings = async () => {
@@ -422,8 +462,14 @@ export default function ChatPage({ onLogout }) {
               </div>
               <h2 className="mode-select-title">Добро пожаловать!</h2>
               <p className="mode-select-subtitle">Выберите режим для нового чата:</p>
+              <label className="model-select-field">
+                <span>Модель</span>
+                <select value={selectedLlmModel} onChange={onChangeChatModel} disabled={loading || chatModels.length === 0}>
+                  {chatModels.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
+                </select>
+              </label>
               <div className="mode-cards">
-                <button className="mode-card" onClick={() => handleCreateConversation('PLAIN')} disabled={loading}>
+                <button className="mode-card" onClick={() => handleCreateConversation('PLAIN')} disabled={loading || !selectedLlmModel}>
                   <div className="mode-card-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="10" />
@@ -433,7 +479,7 @@ export default function ChatPage({ onLogout }) {
                   <h3>PLAIN</h3>
                   <p>Обычный LLM-чат без базы знаний</p>
                 </button>
-                <button className="mode-card" onClick={() => handleCreateConversation('RAG')} disabled={loading}>
+                <button className="mode-card" onClick={() => handleCreateConversation('RAG')} disabled={loading || !selectedLlmModel}>
                   <div className="mode-card-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
@@ -477,6 +523,15 @@ export default function ChatPage({ onLogout }) {
             </button>
             <h1>RAG Chatbot</h1>
             <div className="header-right">
+              <select
+                className="chat-model-select"
+                aria-label="Модель чата"
+                value={selectedLlmModel}
+                onChange={onChangeChatModel}
+                disabled={loading || modelChangeLoading || chatModels.length === 0}
+              >
+                {chatModels.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
+              </select>
               {conversationMode === 'RAG' && (
                 <span className="mode-indicator">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

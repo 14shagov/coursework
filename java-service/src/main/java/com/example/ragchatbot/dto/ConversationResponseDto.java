@@ -14,4 +14,5 @@ public class ConversationResponseDto {
     private String mode;
     private String title;
     private Instant createdAt;
+    private String llmModel;
 }

@@ -1,6 +1,7 @@
 package com.example.ragchatbot.controller;
 
 import com.example.ragchatbot.dto.ConversationCreateDto;
+import com.example.ragchatbot.dto.ConversationModelUpdateDto;
 import com.example.ragchatbot.dto.ConversationResponseDto;
 import com.example.ragchatbot.dto.MessageDto;
 import com.example.ragchatbot.dto.MessageRequestDto;
@@ -19,6 +20,7 @@ import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,7 +42,7 @@ public class ConversationController {
         long userId = JwtUserIdExtractor.extract(jwt);
         log.info("[chat-api] createConversation userId={}, mode={}, title={}", userId, request.getMode(), request.getTitle());
         ConversationResponseDto dto = chatService.createConversation(
-                userId, request.getTitle(), request.getMode());
+                userId, request.getTitle(), request.getMode(), request.getLlmModel());
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
@@ -49,6 +51,18 @@ public class ConversationController {
         long userId = JwtUserIdExtractor.extract(jwt);
         log.info("[chat-api] listConversations userId={}", userId);
         return ResponseEntity.ok(chatService.listConversations(userId));
+    }
+
+    @GetMapping("/models")
+    public ResponseEntity<List<com.example.ragchatbot.dto.ChatModelDto>> getChatModels(@AuthenticationPrincipal Jwt jwt) {
+        JwtUserIdExtractor.extract(jwt);
+        return ResponseEntity.ok(chatService.getChatModels());
+    }
+
+    @PutMapping("/{id}/model")
+    public ResponseEntity<ConversationResponseDto> updateConversationModel(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                                                             @Valid @RequestBody ConversationModelUpdateDto request) {
+        return ResponseEntity.ok(chatService.updateConversationModel(JwtUserIdExtractor.extract(jwt), id, request.getLlmModel()));
     }
 
     @GetMapping("/{id}")

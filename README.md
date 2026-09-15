@@ -55,6 +55,7 @@ cp .env.example .env
 | `GITHUB_TOKEN` | Ключ chat/LLM роутера |
 | `EMBEDDING_GITHUB_TOKEN` | Ключ embedding роутера; не должен совпадать с ключом LLM, если используются разные провайдеры |
 | `LLM_MODEL` | Модель генерации ответа |
+| `LLM_ALLOWED_MODELS` | Список разрешённых chat-моделей через запятую; должен включать `LLM_MODEL` |
 | `EMBEDDING_MODEL` | Модель векторизации |
 | `CHAT_API_BASE_URL` | OpenAI-compatible URL chat роутера |
 | `EMBEDDING_API_BASE_URL` | OpenAI-compatible URL embedding роутера |

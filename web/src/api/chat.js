@@ -1,13 +1,25 @@
 import { apiRequest, getAuthToken } from './client'
 import { isMockEnabled, mockStreamResponse } from './mock'
 
-export function createConversation(mode = 'PLAIN') {
+export function createConversation(mode = 'PLAIN', llmModel) {
   return apiRequest('/api/conversations', {
     method: 'POST',
     body: JSON.stringify({
       mode,
       title: 'Web Chat',
+      llmModel,
     }),
+  })
+}
+
+export function listChatModels() {
+  return apiRequest('/api/conversations/models')
+}
+
+export function updateConversationModel(conversationId, llmModel) {
+  return apiRequest(`/api/conversations/${conversationId}/model`, {
+    method: 'PUT',
+    body: JSON.stringify({ llmModel }),
   })
 }
 

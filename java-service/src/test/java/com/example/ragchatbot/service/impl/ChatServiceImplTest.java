@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.example.ragchatbot.client.PythonServiceClient;
 import com.example.ragchatbot.client.PythonStreamingClient;
 import com.example.ragchatbot.dto.MessageDto;
+import com.example.ragchatbot.dto.ChatRequestDto;
 import com.example.ragchatbot.dto.MessageRole;
 import com.example.ragchatbot.dto.RagContextResultDto;
 import com.example.ragchatbot.dto.StreamingChatChunk;
@@ -20,6 +21,7 @@ import com.example.ragchatbot.repository.ConversationRepository;
 import com.example.ragchatbot.repository.MessageRepository;
 import com.example.ragchatbot.repository.UserRepository;
 import com.example.ragchatbot.service.RagService;
+import com.example.ragchatbot.service.ChatModelCatalog;
 import java.util.List;
 import java.util.Optional;
 import org.mockito.InOrder;
@@ -52,7 +54,9 @@ class ChatServiceImplTest {
                 ragService,
                 conversationRepository,
                 userRepository,
-                messageRepository);
+                messageRepository,
+                new ChatModelCatalog("Qwen3.6-35B-A3B",
+                        "DeepSeek-V4-Flash,DeepSeek-V4-Pro,glm-4.5-air,Qwen3.6-35B-A3B,step-3.7-flash"));
         org.springframework.test.util.ReflectionTestUtils.setField(chatService, "ragTopK", 5);
     }
 
@@ -116,6 +120,25 @@ class ChatServiceImplTest {
         assertThat(saved.getAllValues().get(1))
                 .extracting(Message::getContent, Message::getThinking)
                 .containsExactly("Answer", "Thought");
+    }
+
+    @Test
+    void forwardsConversationModelToStreamingProvider() {
+        Conversation conversation = new Conversation();
+        conversation.setId(22L);
+        conversation.setMode(com.example.ragchatbot.dto.ConversationMode.PLAIN);
+        conversation.setLlmModel("DeepSeek-V4-Flash");
+        when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
+        when(pythonStreamingClient.chatStreaming(any())).thenReturn(Flux.just(
+                "{\"type\":\"content\",\"text\":\"Answer\"}",
+                "{\"type\":\"done\",\"text\":\"\"}"));
+
+        chatService.sendMessageStreaming(7L, 22L, "Question").collectList().block();
+
+        ArgumentCaptor<ChatRequestDto> request = ArgumentCaptor.forClass(ChatRequestDto.class);
+        verify(pythonStreamingClient).chatStreaming(request.capture());
+        assertThat(request.getValue().getLlmModel()).isEqualTo("DeepSeek-V4-Flash");
     }
 
     @Test

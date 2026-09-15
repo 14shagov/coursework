@@ -9,4 +9,5 @@ import lombok.NoArgsConstructor;
 public class ChatRequestDto {
     private List<ChatMessageDto> messages;
     private List<String> contextChunks;
+    private String llmModel;
 }

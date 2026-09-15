@@ -47,7 +47,8 @@ services:
       # Опциональный отдельный токен для embeddings (если пусто -> fallback на GITHUB_TOKEN)
       EMBEDDING_GITHUB_TOKEN: ${EMBEDDING_GITHUB_TOKEN:-}
       # Обязательная модель для chat/completions (непустая)
-      LLM_MODEL: ${LLM_MODEL:-openai/gpt-4.1}
+      LLM_MODEL: ${LLM_MODEL:-Qwen3.6-35B-A3B}
+      LLM_ALLOWED_MODELS: ${LLM_ALLOWED_MODELS:-DeepSeek-V4-Flash,DeepSeek-V4-Pro,glm-4.5-air,Qwen3.6-35B-A3B,step-3.7-flash}
       LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-high}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-openai/text-embedding-3-small}
       CHAT_API_BASE_URL: ${CHAT_API_BASE_URL:-https://models.github.ai/inference}
@@ -84,6 +85,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-raguser}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ragpass}
       PYTHON_SERVICE_BASE_URL: http://python-service:8000
+      LLM_MODEL: ${LLM_MODEL:-Qwen3.6-35B-A3B}
+      LLM_ALLOWED_MODELS: ${LLM_ALLOWED_MODELS:-DeepSeek-V4-Flash,DeepSeek-V4-Pro,glm-4.5-air,Qwen3.6-35B-A3B,step-3.7-flash}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
