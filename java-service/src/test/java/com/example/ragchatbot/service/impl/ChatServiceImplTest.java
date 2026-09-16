@@ -22,6 +22,9 @@ import com.example.ragchatbot.repository.MessageRepository;
 import com.example.ragchatbot.repository.UserRepository;
 import com.example.ragchatbot.service.RagService;
 import com.example.ragchatbot.service.ChatModelCatalog;
+import com.example.ragchatbot.search.SearchIndexService;
+import com.example.ragchatbot.search.SearchOutboxPublisher;
+import com.example.ragchatbot.search.TitleGenerationService;
 import java.util.List;
 import java.util.Optional;
 import org.mockito.InOrder;
@@ -48,6 +51,11 @@ class ChatServiceImplTest {
         conversationRepository = mock(ConversationRepository.class);
         UserRepository userRepository = mock(UserRepository.class);
         messageRepository = mock(MessageRepository.class);
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(conversationRepository.save(any(Conversation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        SearchOutboxPublisher searchOutboxPublisher = mock(SearchOutboxPublisher.class);
+        TitleGenerationService titleGenerationService = mock(TitleGenerationService.class);
+        SearchIndexService searchIndexService = mock(SearchIndexService.class);
         chatService = new ChatServiceImpl(
                 pythonServiceClient,
                 pythonStreamingClient,
@@ -56,7 +64,10 @@ class ChatServiceImplTest {
                 userRepository,
                 messageRepository,
                 new ChatModelCatalog("Qwen3.6-35B-A3B",
-                        "DeepSeek-V4-Flash,DeepSeek-V4-Pro,glm-4.5-air,Qwen3.6-35B-A3B,step-3.7-flash"));
+                        "DeepSeek-V4-Flash,DeepSeek-V4-Pro,glm-4.5-air,Qwen3.6-35B-A3B,step-3.7-flash"),
+                searchOutboxPublisher,
+                titleGenerationService,
+                searchIndexService);
         org.springframework.test.util.ReflectionTestUtils.setField(chatService, "ragTopK", 5);
     }
 
