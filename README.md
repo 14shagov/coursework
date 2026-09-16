@@ -15,6 +15,7 @@ RAG-чатбот. Пользователь ведёт отдельные диа�
 React/Vite (web) -> Spring Boot (java-service) -> FastAPI (python-service) -> LLM / embedding routers
                              |
                              -> PostgreSQL + pgvector
+                             -> Elasticsearch
 ```
 
 | Компонент | Технологии | Назначение | Порт |
@@ -23,6 +24,7 @@ React/Vite (web) -> Spring Boot (java-service) -> FastAPI (python-service) -> LL
 | `java-service` | Java 21, Spring Boot, JPA, Liquibase | REST API, JWT, диалоги, RAG-поиск | 8080 |
 | `python-service` | Python, FastAPI, OpenAI SDK | Клиенты chat и embedding роутеров | 8000 |
 | `postgres` | PostgreSQL 16, pgvector | Пользователи, сообщения, чанки, векторы | 5432 |
+| `elasticsearch` | Elasticsearch 8.19 | Поиск по названиям и сообщениям чатов | 9200 (только dev) |
 
 ## Как работает RAG
 
@@ -55,6 +57,7 @@ cp .env.example .env
 | `GITHUB_TOKEN` | Ключ chat/LLM роутера |
 | `EMBEDDING_GITHUB_TOKEN` | Ключ embedding роутера; не должен совпадать с ключом LLM, если используются разные провайдеры |
 | `LLM_MODEL` | Модель генерации ответа |
+| `TITLE_LLM_MODEL` | Быстрая модель для названий чатов |
 | `LLM_ALLOWED_MODELS` | Список разрешённых chat-моделей через запятую; должен включать `LLM_MODEL` |
 | `EMBEDDING_MODEL` | Модель векторизации |
 | `CHAT_API_BASE_URL` | OpenAI-compatible URL chat роутера |
@@ -100,6 +103,9 @@ docker compose -f docker-compose.dev.yml up
 - pgAdmin: `http://localhost:5050`;
 - Java API: `http://localhost:8080`;
 - Python OpenAPI: `http://localhost:8000/docs`.
+- Elasticsearch: `http://localhost:9200`.
+
+Elasticsearch использует single-node режим. Security отключён только для локального учебного Docker-стека; не публикуйте этот контейнер в недоверенную сеть.
 
 Frontend можно запускать отдельно:
 
@@ -121,12 +127,16 @@ Vite откроется на `http://localhost:5173` и проксирует `/a
 | `POST` | `/api/auth/login` | Вход и получение JWT |
 | `POST` | `/api/conversations` | Создать диалог в `PLAIN` или `RAG` |
 | `GET` | `/api/conversations` | Список диалогов текущего пользователя |
+| `PUT` | `/api/conversations/{id}/title` | Переименовать диалог |
+| `GET` | `/api/conversations/search?q=...` | Elasticsearch-поиск по названиям и сообщениям |
 | `GET` | `/api/conversations/{id}` | Получить диалог |
 | `GET` | `/api/conversations/{id}/messages` | История сообщений |
 | `POST` | `/api/conversations/{id}/messages` | Отправить обычный запрос |
 | `POST` | `/api/conversations/{id}/messages/stream` | Отправить streaming-запрос через SSE |
 | `POST` | `/api/admin/embeddings/jobs` | Создать задачу векторизации чанков |
 | `GET` | `/api/admin/embeddings/jobs/{id}` | Получить статус задачи векторизации |
+| `POST` | `/api/admin/search/reindex` | Запустить переиндексацию поиска |
+| `GET` | `/api/admin/search/reindex/{id}` | Статус переиндексации |
 
 Защищённые Java API требуют заголовок:
 

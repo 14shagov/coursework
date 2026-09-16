@@ -3,10 +3,12 @@ package com.example.ragchatbot.controller;
 import com.example.ragchatbot.dto.ConversationCreateDto;
 import com.example.ragchatbot.dto.ConversationModelUpdateDto;
 import com.example.ragchatbot.dto.ConversationResponseDto;
+import com.example.ragchatbot.dto.ConversationTitleUpdateDto;
 import com.example.ragchatbot.dto.MessageDto;
 import com.example.ragchatbot.dto.MessageRequestDto;
 import com.example.ragchatbot.dto.MessageResponseDto;
 import com.example.ragchatbot.dto.StreamingChatChunk;
+import com.example.ragchatbot.dto.SearchConversationResultDto;
 import com.example.ragchatbot.security.JwtUserIdExtractor;
 import com.example.ragchatbot.service.ChatService;
 import jakarta.validation.Valid;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -63,6 +66,18 @@ public class ConversationController {
     public ResponseEntity<ConversationResponseDto> updateConversationModel(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
                                                                              @Valid @RequestBody ConversationModelUpdateDto request) {
         return ResponseEntity.ok(chatService.updateConversationModel(JwtUserIdExtractor.extract(jwt), id, request.getLlmModel()));
+    }
+
+    @PutMapping("/{id}/title")
+    public ResponseEntity<ConversationResponseDto> updateConversationTitle(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                                                             @Valid @RequestBody ConversationTitleUpdateDto request) {
+        return ResponseEntity.ok(chatService.updateConversationTitle(JwtUserIdExtractor.extract(jwt), id, request.getTitle()));
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<List<SearchConversationResultDto>> search(@AuthenticationPrincipal Jwt jwt,
+                                                                      @RequestParam(name = "q", defaultValue = "") String query) {
+        return ResponseEntity.ok(chatService.searchConversations(JwtUserIdExtractor.extract(jwt), query));
     }
 
     @GetMapping("/{id}")

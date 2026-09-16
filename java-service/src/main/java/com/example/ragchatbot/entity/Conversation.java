@@ -32,4 +32,13 @@ public class Conversation {
     private String title;
     private Instant createdAt;
     private String llmModel;
+
+    @Enumerated(EnumType.STRING)
+    private TitleOrigin titleOrigin;
+
+    @Enumerated(EnumType.STRING)
+    private TitleGenerationStatus titleGenerationStatus;
+
+    private Instant updatedAt;
+    private Instant lastMessageAt;
 }

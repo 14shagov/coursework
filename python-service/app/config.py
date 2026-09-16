@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     github_token: str = Field(..., min_length=1)
     embedding_github_token: str | None = None
     llm_model: str = Field("Qwen3.6-35B-A3B", min_length=1)
+    title_llm_model: str = Field("step-3.7-flash", min_length=1)
     embedding_model: str = Field("openai/text-embedding-3-large", min_length=1)
     chat_api_base_url: str = Field(..., min_length=1)
     embedding_api_base_url: str = Field(..., min_length=1)
@@ -23,7 +24,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    @field_validator("github_token", "llm_model", "embedding_model", "llm_reasoning_effort")
+    @field_validator("github_token", "llm_model", "title_llm_model", "embedding_model", "llm_reasoning_effort")
     @classmethod
     def require_non_blank(cls, value: str) -> str:
         value = value.strip()

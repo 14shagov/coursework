@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.schemas import ChatRequest, ChatResponse
+from app.schemas import ChatRequest, ChatResponse, TitleRequest, TitleResponse
 from app.services.llm_client import LlmClient
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -54,6 +54,20 @@ def chat(req: ChatRequest) -> ChatResponse:
     except Exception as exception:
         logger.error("LLM provider error in /chat: request_id=%s error_type=%s", request_id,
                      type(exception).__name__)
+        raise HTTPException(status_code=502, detail="LLM provider error")
+
+
+@router.post("/titles", response_model=TitleResponse)
+def title(req: TitleRequest) -> TitleResponse:
+    request_id = str(uuid4())
+    try:
+        value = llm_client.create_title(req.content)
+        logger.info("/chat/titles completed: request_id=%s", request_id)
+        return TitleResponse(title=value)
+    except ValueError as exception:
+        raise HTTPException(status_code=400, detail=str(exception))
+    except Exception as exception:
+        logger.error("LLM title error: request_id=%s error_type=%s", request_id, type(exception).__name__)
         raise HTTPException(status_code=502, detail="LLM provider error")
 
 

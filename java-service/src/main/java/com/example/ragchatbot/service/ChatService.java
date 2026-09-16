@@ -13,6 +13,8 @@ public interface ChatService {
 
     ConversationResponseDto updateConversationModel(Long userId, Long conversationId, String llmModel);
 
+    ConversationResponseDto updateConversationTitle(Long userId, Long conversationId, String title);
+
     List<com.example.ragchatbot.dto.ChatModelDto> getChatModels();
 
     MessageResponseDto sendMessage(Long userId, Long conversationId, String content);
@@ -24,4 +26,6 @@ public interface ChatService {
     List<ConversationResponseDto> listConversations(Long userId);
 
     List<com.example.ragchatbot.dto.MessageDto> getHistory(Long userId, Long conversationId);
+
+    List<com.example.ragchatbot.dto.SearchConversationResultDto> searchConversations(Long userId, String query);
 }

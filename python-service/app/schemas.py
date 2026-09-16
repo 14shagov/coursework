@@ -25,3 +25,11 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     content: str
     thinking: str | None = None
+
+
+class TitleRequest(BaseModel):
+    content: str
+
+
+class TitleResponse(BaseModel):
+    title: str

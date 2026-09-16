@@ -11,6 +11,8 @@ import com.example.ragchatbot.dto.StreamingChatChunk;
 import com.example.ragchatbot.entity.User;
 import com.example.ragchatbot.entity.Conversation;
 import com.example.ragchatbot.entity.Message;
+import com.example.ragchatbot.entity.TitleGenerationStatus;
+import com.example.ragchatbot.entity.TitleOrigin;
 import com.example.ragchatbot.dto.MessageRole;
 import com.example.ragchatbot.repository.ConversationRepository;
 import com.example.ragchatbot.repository.UserRepository;
@@ -21,6 +23,9 @@ import com.example.ragchatbot.dto.ConversationMode;
 import com.example.ragchatbot.client.PythonServiceClient;
 import com.example.ragchatbot.client.PythonStreamingClient;
 import com.example.ragchatbot.service.RagService;
+import com.example.ragchatbot.search.SearchIndexService;
+import com.example.ragchatbot.search.SearchOutboxPublisher;
+import com.example.ragchatbot.search.TitleGenerationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
@@ -73,6 +78,9 @@ public class ChatServiceImpl implements ChatService {
     private final UserRepository userRepository;
     private final MessageRepository messageRepository;
     private final ChatModelCatalog chatModelCatalog;
+    private final SearchOutboxPublisher searchOutboxPublisher;
+    private final TitleGenerationService titleGenerationService;
+    private final SearchIndexService searchIndexService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${chat.rag.top-k:5}")
@@ -89,10 +97,16 @@ public class ChatServiceImpl implements ChatService {
         Conversation conversation = new Conversation();
         conversation.setUser(user);
         conversation.setMode(conversationMode);
-        conversation.setTitle(title);
+        conversation.setTitle("Новый чат");
+        conversation.setTitleOrigin(TitleOrigin.AUTO);
+        conversation.setTitleGenerationStatus(TitleGenerationStatus.PENDING);
         conversation.setLlmModel(chatModelCatalog.resolve(llmModel));
-        conversation.setCreatedAt(Instant.now());
+        Instant now = Instant.now();
+        conversation.setCreatedAt(now);
+        conversation.setUpdatedAt(now);
+        conversation.setLastMessageAt(now);
         Conversation saved = conversationRepository.save(conversation);
+        searchOutboxPublisher.publish(com.example.ragchatbot.entity.SearchOutboxEventType.UPSERT_CONVERSATION, saved.getId());
         log.info("[chat-service] createConversation saved conversationId={}, userId={}, mode={}, title={}",
                 saved.getId(), userId, conversationMode, title);
         return toConversationResponse(saved);
@@ -389,8 +403,15 @@ public class ChatServiceImpl implements ChatService {
         message.setRole(role);
         message.setContent(content);
         message.setThinking(thinking);
-        message.setCreatedAt(Instant.now());
-        messageRepository.save(message);
+        Instant now = Instant.now();
+        message.setCreatedAt(now);
+        Message saved = messageRepository.save(message);
+        conversation.setLastMessageAt(now);
+        conversation.setUpdatedAt(now);
+        conversationRepository.save(conversation);
+        searchOutboxPublisher.publish(com.example.ragchatbot.entity.SearchOutboxEventType.UPSERT_MESSAGE, saved.getId());
+        searchOutboxPublisher.publish(com.example.ragchatbot.entity.SearchOutboxEventType.UPSERT_CONVERSATION, conversation.getId());
+        if (role == MessageRole.USER) titleGenerationService.queueIfFirstUserMessage(conversation, saved);
         log.debug("[chat-service] message saved conversationId={}, role={}", conversation.getId(), role);
     }
 
@@ -463,7 +484,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<ConversationResponseDto> listConversations(Long userId) {
-        return conversationRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+        return conversationRepository.findByUserIdOrderByLastMessageAtDesc(userId).stream()
                 .map(this::toConversationResponse)
                 .toList();
     }
@@ -474,6 +495,29 @@ public class ChatServiceImpl implements ChatService {
         Conversation conversation = ownedConversation(userId, conversationId);
         conversation.setLlmModel(chatModelCatalog.resolve(llmModel));
         return toConversationResponse(conversationRepository.save(conversation));
+    }
+
+    @Override
+    @Transactional
+    public ConversationResponseDto updateConversationTitle(Long userId, Long conversationId, String title) {
+        String normalized = title == null ? "" : title.trim().replaceAll("\\s+", " ");
+        if (normalized.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Conversation title must not be blank");
+        }
+        Conversation conversation = ownedConversation(userId, conversationId);
+        conversation.setTitle(normalized);
+        conversation.setTitleOrigin(TitleOrigin.USER);
+        conversation.setTitleGenerationStatus(TitleGenerationStatus.READY);
+        conversation.setUpdatedAt(Instant.now());
+        titleGenerationService.cancel(conversationId);
+        Conversation saved = conversationRepository.save(conversation);
+        searchOutboxPublisher.publish(com.example.ragchatbot.entity.SearchOutboxEventType.UPSERT_CONVERSATION, saved.getId());
+        return toConversationResponse(saved);
+    }
+
+    @Override
+    public List<com.example.ragchatbot.dto.SearchConversationResultDto> searchConversations(Long userId, String query) {
+        return searchIndexService.search(userId, query);
     }
 
     @Override
@@ -491,6 +535,9 @@ public class ChatServiceImpl implements ChatService {
 
     private ConversationResponseDto toConversationResponse(Conversation conversation) {
         return new ConversationResponseDto(conversation.getId(), conversation.getUser().getId(), conversation.getMode().name(),
-                conversation.getTitle(), conversation.getCreatedAt(), chatModelCatalog.resolve(conversation.getLlmModel()));
+                conversation.getTitle(), conversation.getCreatedAt(), chatModelCatalog.resolve(conversation.getLlmModel()),
+                conversation.getTitleOrigin() == null ? null : conversation.getTitleOrigin().name(),
+                conversation.getTitleGenerationStatus() == null ? null : conversation.getTitleGenerationStatus().name(),
+                conversation.getLastMessageAt());
     }
 }

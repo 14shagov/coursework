@@ -17,6 +17,15 @@ chat:
     # Рекомендуется поднять до 0.5–0.6 после первичного тестирования.
     min-similarity: 0.35
   max-history-messages: 20  # Максимум сообщений истории в LLM (FIFO-обрезка)
+  title-generation:
+    poll-ms: 1000
+
+search:
+  elasticsearch:
+    url: ${ELASTICSEARCH_URL:http://elasticsearch:9200}
+    alias: ${ELASTICSEARCH_ALIAS:chat-search}
+    enabled: ${ELASTICSEARCH_ENABLED:true}
+    poll-ms: 1000
 
 app:
   security:

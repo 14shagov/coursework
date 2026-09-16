@@ -97,7 +97,7 @@ describe('conversation contract', () => {
     await listConversations()
 
     expect(fetch.mock.calls[0][0]).toBe('/api/conversations')
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ mode: 'RAG', title: 'Web Chat', llmModel: 'Qwen3.6-35B-A3B' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ mode: 'RAG', llmModel: 'Qwen3.6-35B-A3B' })
     expect(fetch.mock.calls[1][0]).toBe('/api/conversations')
   })
 

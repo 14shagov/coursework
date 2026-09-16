@@ -6,7 +6,6 @@ export function createConversation(mode = 'PLAIN', llmModel) {
     method: 'POST',
     body: JSON.stringify({
       mode,
-      title: 'Web Chat',
       llmModel,
     }),
   })
@@ -21,6 +20,25 @@ export function updateConversationModel(conversationId, llmModel) {
     method: 'PUT',
     body: JSON.stringify({ llmModel }),
   })
+}
+
+export function updateConversationTitle(conversationId, title) {
+  return apiRequest(`/api/conversations/${conversationId}/title`, {
+    method: 'PUT',
+    body: JSON.stringify({ title }),
+  })
+}
+
+export function searchConversations(query) {
+  return apiRequest(`/api/conversations/search?q=${encodeURIComponent(query)}`)
+}
+
+export function startSearchReindex() {
+  return apiRequest('/api/admin/search/reindex', { method: 'POST' })
+}
+
+export function getSearchReindex(jobId) {
+  return apiRequest(`/api/admin/search/reindex/${jobId}`)
 }
 
 export function listConversations() {

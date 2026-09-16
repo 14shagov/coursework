@@ -1,4 +1,82 @@
-export default function Sidebar({ conversations, activeId, onSelect, onNewChat, onLogout, loading, collapsed, onToggleCollapse }) {
+import { useEffect, useRef, useState } from 'react'
+
+function Highlight({ value }) {
+  const parts = String(value || '').split(/(<em>|<\/em>)/g)
+  let marked = false
+  return parts.map((part, index) => {
+    if (part === '<em>') { marked = true; return null }
+    if (part === '</em>') { marked = false; return null }
+    return marked ? <mark key={index}>{part}</mark> : part
+  })
+}
+
+export default function Sidebar({ conversations, activeId, onSelect, onRename, onSearch, onNewChat, onLogout, loading, collapsed, onToggleCollapse }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [searchError, setSearchError] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [draftTitle, setDraftTitle] = useState('')
+  const [focusSearch, setFocusSearch] = useState(false)
+  const searchInputRef = useRef(null)
+  const renameInFlightRef = useRef(false)
+
+  useEffect(() => {
+    if (!collapsed && focusSearch) {
+      searchInputRef.current?.focus()
+      setFocusSearch(false)
+    }
+  }, [collapsed, focusSearch])
+
+  useEffect(() => {
+    const text = query.trim()
+    if (text.length < 2) {
+      setResults([])
+      setSearchError('')
+      setSearching(false)
+      return undefined
+    }
+    const timer = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const response = await onSearch(text)
+        setResults(Array.isArray(response) ? response : [])
+        setSearchError('')
+      } catch (error) {
+        setResults([])
+        setSearchError('Поиск временно недоступен')
+      } finally {
+        setSearching(false)
+      }
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [query, onSearch])
+
+  const beginRename = (event, conversation) => {
+    event.stopPropagation()
+    setEditingId(conversation.id)
+    setDraftTitle(conversation.title || '')
+  }
+
+  const commitRename = async (conversation) => {
+    if (renameInFlightRef.current) return
+    const title = draftTitle.trim()
+    if (!title) {
+      setEditingId(null)
+      return
+    }
+    renameInFlightRef.current = true
+    try {
+      await onRename(conversation.id, title)
+      setEditingId(null)
+    } catch (_) {
+      // Parent already presents request error; keep input open for correction/retry.
+    } finally {
+      renameInFlightRef.current = false
+    }
+  }
+
+  const displayed = query.trim().length >= 2 ? results : conversations
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <div className="sidebar-header">
@@ -20,35 +98,48 @@ export default function Sidebar({ conversations, activeId, onSelect, onNewChat, 
             </svg>
           </button>
         )}
+        {collapsed && onToggleCollapse && (
+          <button className="sidebar-collapse-btn" onClick={() => { setFocusSearch(true); onToggleCollapse() }} title="Поиск" aria-label="Поиск">⌕</button>
+        )}
       </div>
 
+      {!collapsed && (
+        <div className="sidebar-search">
+          <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по чатам" aria-label="Поиск по чатам" />
+          {searching && <span className="sidebar-search-state">…</span>}
+        </div>
+      )}
+
       <nav className="sidebar-list">
-        {conversations.length === 0 && !collapsed && (
-          <div className="sidebar-empty">Нет чатов</div>
+        {searchError && <div className="sidebar-empty">{searchError}</div>}
+        {displayed.length === 0 && !collapsed && !searchError && (
+          <div className="sidebar-empty">{query.trim().length >= 2 ? 'Ничего не найдено' : 'Нет чатов'}</div>
         )}
-        {conversations.map((conv) => (
-          <button
-            key={conv.id}
-            className={`sidebar-item ${conv.id === activeId ? 'sidebar-item-active' : ''}`}
-            onClick={() => onSelect(conv)}
-            disabled={loading}
-            title={collapsed ? (conv.title || 'Без названия') : undefined}
-          >
+        {displayed.map((conv) => {
+          const id = conv.conversationId || conv.id
+          const isResult = Boolean(conv.conversationId)
+          return <div key={id} className={`sidebar-item ${id === activeId ? 'sidebar-item-active' : ''}`}>
+            <button className="sidebar-item-main" onClick={() => onSelect(conv)} disabled={loading} title={collapsed ? (conv.title || 'Без названия') : undefined}>
             {!collapsed ? (
               <>
                 <div className="sidebar-item-info">
-                  <span className="sidebar-item-title">{conv.title || 'Без названия'}</span>
-                  <span className="sidebar-item-date">
-                    {conv.createdAt ? new Date(conv.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : ''}
-                  </span>
+                  {editingId === id ? (
+                    <input className="sidebar-title-input" value={draftTitle} autoFocus onClick={(event) => event.stopPropagation()} onChange={(event) => setDraftTitle(event.target.value)} onKeyDown={(event) => {
+                      if (event.key === 'Enter') commitRename({ id })
+                      if (event.key === 'Escape') setEditingId(null)
+                    }} onBlur={() => commitRename({ id })} />
+                  ) : <span className="sidebar-item-title"><Highlight value={conv.title || 'Без названия'} /></span>}
+                  {isResult ? <span className="sidebar-search-snippet"><span>{conv.matchedIn === 'TITLE' ? 'В названии' : 'В сообщении: '}</span><Highlight value={conv.snippet} /></span> : <span className="sidebar-item-date">{conv.lastMessageAt || conv.createdAt ? new Date(conv.lastMessageAt || conv.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : ''}</span>}
                 </div>
-                <span className={`mode-badge mode-badge-${conv.mode?.toLowerCase() || 'plain'}`}>{conv.mode || 'PLAIN'}</span>
+                {!isResult && <span className={`mode-badge mode-badge-${conv.mode?.toLowerCase() || 'plain'}`}>{conv.mode || 'PLAIN'}</span>}
               </>
             ) : (
               <span className="sidebar-item-letter">{(conv.title || '?')[0]}</span>
             )}
-          </button>
-        ))}
+            </button>
+            {!collapsed && !isResult && editingId !== id && <button className="sidebar-more" onClick={(event) => beginRename(event, conv)} title="Переименовать" aria-label="Переименовать">…</button>}
+          </div>
+        })}
       </nav>
 
       <div className="sidebar-footer">

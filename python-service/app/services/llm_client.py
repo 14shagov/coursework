@@ -134,6 +134,23 @@ class LlmClient:
 
         return content, reasoning
 
+    def create_title(self, content: str) -> str:
+        model = self.resolve_chat_model(settings.title_llm_model)
+        prompt = (
+            "Сформируй короткое название чата по сообщению пользователя. "
+            "Верни только название без кавычек, до 60 символов, на языке сообщения."
+        )
+        response = self.chat_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": content},
+            ],
+            temperature=0.0,
+        )
+        message = response.choices[0].message if response.choices else None
+        return ((message.content if message else None) or "").strip()
+
     def stream_chat_completion(self, messages: list[dict], model: str | None = None):
         """Stream chat completion, yielding (chunk_type, text) tuples.
         

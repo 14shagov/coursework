@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-export default function MessageBubble({ role, content, thinking, isStreaming, streamingStatus }) {
+export default function MessageBubble({ messageId, highlighted, role, content, thinking, isStreaming, streamingStatus }) {
   const isUser = role === 'USER'
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const thinkingContentRef = useRef(null)
@@ -32,7 +32,7 @@ export default function MessageBubble({ role, content, thinking, isStreaming, st
 
   if (isUser) {
     return (
-      <div className="message message-user">
+      <div id={messageId ? `message-${messageId}` : undefined} className={`message message-user ${highlighted ? 'message-highlighted' : ''}`}>
         <div className="bubble bubble-user">
           <div className="bubble-content">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
@@ -43,7 +43,7 @@ export default function MessageBubble({ role, content, thinking, isStreaming, st
   }
 
   return (
-    <div className="message message-assistant">
+    <div id={messageId ? `message-${messageId}` : undefined} className={`message message-assistant ${highlighted ? 'message-highlighted' : ''}`}>
       <div className="bubble-role">Assistant</div>
 
       {hasThinking && (

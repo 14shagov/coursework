@@ -77,3 +77,15 @@ def test_rejects_model_outside_allow_list() -> None:
 
     with pytest.raises(ValueError, match="Unsupported chat model"):
         client.resolve_chat_model("Qwen3.8-27B")
+
+
+def test_title_request_uses_fast_model_without_reasoning() -> None:
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Короткий заголовок"))])
+    client = LlmClient()
+    client.chat_client, completions = fake_client(response)
+
+    title = client.create_title("Расскажи про креветки")
+
+    assert title == "Короткий заголовок"
+    assert completions.calls[0]["model"] == "step-3.7-flash"
+    assert "extra_body" not in completions.calls[0]

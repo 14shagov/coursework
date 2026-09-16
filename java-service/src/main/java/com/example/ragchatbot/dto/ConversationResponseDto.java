@@ -7,7 +7,6 @@ import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 public class ConversationResponseDto {
     private Long id;
     private Long userId;
@@ -15,4 +14,24 @@ public class ConversationResponseDto {
     private String title;
     private Instant createdAt;
     private String llmModel;
+    private String titleOrigin;
+    private String titleGenerationStatus;
+    private Instant lastMessageAt;
+
+    public ConversationResponseDto(Long id, Long userId, String mode, String title, Instant createdAt, String llmModel) {
+        this(id, userId, mode, title, createdAt, llmModel, null, null, null);
+    }
+
+    public ConversationResponseDto(Long id, Long userId, String mode, String title, Instant createdAt, String llmModel,
+                                   String titleOrigin, String titleGenerationStatus, Instant lastMessageAt) {
+        this.id = id;
+        this.userId = userId;
+        this.mode = mode;
+        this.title = title;
+        this.createdAt = createdAt;
+        this.llmModel = llmModel;
+        this.titleOrigin = titleOrigin;
+        this.titleGenerationStatus = titleGenerationStatus;
+        this.lastMessageAt = lastMessageAt;
+    }
 }

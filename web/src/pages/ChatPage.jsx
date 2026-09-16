@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createConversation,
   listChatModels,
@@ -9,6 +9,10 @@ import {
   startEmbeddingJob,
   startMessageStreaming,
   updateConversationModel,
+  updateConversationTitle,
+  searchConversations,
+  startSearchReindex,
+  getSearchReindex,
 } from '../api/chat'
 import MessageBubble from '../components/MessageBubble'
 import Sidebar from '../components/Sidebar'
@@ -61,6 +65,8 @@ function ChatLayout({
   conversations,
   activeId,
   onSelectConversation,
+  onRenameConversation,
+  onSearchConversations,
   onNewChat,
   onLogout,
   loading,
@@ -74,6 +80,8 @@ function ChatLayout({
     conversations,
     activeId,
     onSelect: onSelectConversation,
+    onRename: onRenameConversation,
+    onSearch: onSearchConversations,
     onNewChat,
     onLogout,
     loading,
@@ -122,12 +130,16 @@ export default function ChatPage({ onLogout }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false)
   const [streamingAssistantId, setStreamingAssistantId] = useState(null)
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null)
+  const [searchReindexJob, setSearchReindexJob] = useState(null)
   const messagesContainerRef = useRef(null)
   const autoFollowRef = useRef(true)
   const scrollFrameRef = useRef(null)
   const ragProgressDismissedRef = useRef(false)
   const streamCancelRef = useRef(null)
   const embeddingJobTimerRef = useRef(null)
+  const searchReindexTimerRef = useRef(null)
+  const titleRefreshTimersRef = useRef([])
 
   const clearRagProgress = () => {
     ragProgressDismissedRef.current = false
@@ -186,11 +198,19 @@ export default function ChatPage({ onLogout }) {
     clearRagProgress()
     autoFollowRef.current = true
     try {
-      persistConversation(conv.id, conv.mode || 'PLAIN')
-      const convData = await getConversation(conv.id)
+      const targetId = conv.conversationId || conv.id
+      persistConversation(targetId, conv.mode || 'PLAIN')
+      const convData = await getConversation(targetId)
+      setConversationMode(convData?.mode || conv.mode || 'PLAIN')
       setSelectedLlmModel(convData?.llmModel || defaultChatModel(chatModels))
-      const history = await getMessages(conv.id)
+      const history = await getMessages(targetId)
       setMessages(Array.isArray(history) ? history : [])
+      if (conv.matchedMessageId) {
+        setHighlightedMessageId(conv.matchedMessageId)
+        setTimeout(() => document.getElementById(`message-${conv.matchedMessageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100)
+      } else {
+        setHighlightedMessageId(null)
+      }
       setShowModeSelect(false)
       setSidebarMobileOpen(false)
       setTimeout(() => scrollToBottom(), 100)
@@ -207,6 +227,11 @@ export default function ChatPage({ onLogout }) {
       const list = await listConversations()
       setConversations(Array.isArray(list) ? list : [])
     } catch (_) {}
+  }
+
+  const refreshPendingTitles = () => {
+    titleRefreshTimersRef.current.forEach(clearTimeout)
+    titleRefreshTimersRef.current = [1000, 3000, 6000].map((delay) => setTimeout(refreshConversations, delay))
   }
 
   useEffect(() => {
@@ -244,6 +269,8 @@ export default function ChatPage({ onLogout }) {
   useEffect(() => () => {
     streamCancelRef.current?.()
     clearTimeout(embeddingJobTimerRef.current)
+    clearTimeout(searchReindexTimerRef.current)
+    titleRefreshTimersRef.current.forEach(clearTimeout)
     if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current)
   }, [])
 
@@ -363,6 +390,7 @@ export default function ChatPage({ onLogout }) {
       clearRagProgress()
       setStreamingAssistantId(null)
     } finally {
+      refreshPendingTitles()
       streamCancelRef.current = null
       setLoading(false)
     }
@@ -378,6 +406,39 @@ export default function ChatPage({ onLogout }) {
     setSelectedLlmModel(defaultChatModel(chatModels))
     localStorage.removeItem('conversationId')
     setSidebarMobileOpen(false)
+  }
+
+  const onRenameConversation = async (id, title) => {
+    try {
+      await updateConversationTitle(id, title)
+      await refreshConversations()
+    } catch (e) {
+      setError('Ошибка переименования: ' + e.message)
+      throw e
+    }
+  }
+
+  const onSearchConversations = useCallback((query) => searchConversations(query), [])
+
+  const onStartSearchReindex = async () => {
+    try {
+      const job = await startSearchReindex()
+      setSearchReindexJob(job)
+      const poll = async () => {
+        try {
+          const current = await getSearchReindex(job.id)
+          setSearchReindexJob(current)
+          if (current.status === 'QUEUED' || current.status === 'PENDING' || current.status === 'RUNNING') {
+            searchReindexTimerRef.current = setTimeout(poll, 1000)
+          }
+        } catch (e) {
+          setError('Ошибка переиндексации: ' + e.message)
+        }
+      }
+      searchReindexTimerRef.current = setTimeout(poll, 500)
+    } catch (e) {
+      setError('Ошибка запуска переиндексации: ' + e.message)
+    }
   }
 
   const onChangeChatModel = async (event) => {
@@ -434,6 +495,8 @@ export default function ChatPage({ onLogout }) {
         conversations={conversations}
         activeId={conversationId}
         onSelectConversation={loadConversation}
+        onRenameConversation={onRenameConversation}
+        onSearchConversations={onSearchConversations}
         onNewChat={onNewChat}
         onLogout={onLogout}
         loading={loading}
@@ -504,6 +567,8 @@ export default function ChatPage({ onLogout }) {
       conversations={conversations}
       activeId={conversationId}
       onSelectConversation={loadConversation}
+      onRenameConversation={onRenameConversation}
+      onSearchConversations={onSearchConversations}
       onNewChat={onNewChat}
       onLogout={onLogout}
       loading={loading}
@@ -549,6 +614,7 @@ export default function ChatPage({ onLogout }) {
               >
                 {embeddingInitLoading ? '⏳' : '🧠'}
               </button>
+              <button className="embeddings-init-button" onClick={onStartSearchReindex} title="Переиндексировать поиск">🔎</button>
             </div>
           </div>
 
@@ -582,6 +648,8 @@ export default function ChatPage({ onLogout }) {
             {messages.map((msg, idx) => (
               <MessageBubble
                 key={msg.id || idx}
+                messageId={msg.id}
+                highlighted={msg.id === highlightedMessageId}
                 role={msg.role}
                 content={msg.content}
                 thinking={msg.thinking}
@@ -608,6 +676,12 @@ export default function ChatPage({ onLogout }) {
               Эмбеддинги: {embeddingJob.status.toLowerCase()} — {embeddingJob.processedChunks + embeddingJob.skippedChunks + embeddingJob.failedChunks}/{embeddingJob.totalChunks}
               {embeddingJob.failedChunks > 0 && `, ошибок: ${embeddingJob.failedChunks}`}
               {embeddingJob.errorMessage && ` — ${embeddingJob.errorMessage}`}
+            </div>
+          )}
+          {searchReindexJob && (
+            <div className="embedding-job-status">
+              Поиск: {searchReindexJob.status.toLowerCase()} — {searchReindexJob.processedDocuments}/{searchReindexJob.totalDocuments}
+              {searchReindexJob.errorMessage && ` — ${searchReindexJob.errorMessage}`}
             </div>
           )}
           <form onSubmit={onSubmit} className="input-row">

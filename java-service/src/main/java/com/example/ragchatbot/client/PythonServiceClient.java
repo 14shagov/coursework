@@ -4,6 +4,8 @@ import com.example.ragchatbot.dto.ChatRequestDto;
 import com.example.ragchatbot.dto.ChatResponseDto;
 import com.example.ragchatbot.dto.EmbedRequestDto;
 import com.example.ragchatbot.dto.EmbedResponseDto;
+import com.example.ragchatbot.dto.TitleRequestDto;
+import com.example.ragchatbot.dto.TitleResponseDto;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,5 +18,8 @@ public interface PythonServiceClient {
 
     @PostMapping("/chat")
     ChatResponseDto chat(@RequestBody ChatRequestDto request);
+
+    @PostMapping("/chat/titles")
+    TitleResponseDto title(@RequestBody TitleRequestDto request);
 
 }
