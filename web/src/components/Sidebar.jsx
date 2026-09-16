@@ -14,7 +14,7 @@ export default function Sidebar({ conversations, activeId, onSelect, onRename, o
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searchError, setSearchError] = useState('')
-  const [searching, setSearching] = useState(false)
+  const [searchStatus, setSearchStatus] = useState('idle')
   const [editingId, setEditingId] = useState(null)
   const [draftTitle, setDraftTitle] = useState('')
   const [focusSearch, setFocusSearch] = useState(false)
@@ -33,23 +33,30 @@ export default function Sidebar({ conversations, activeId, onSelect, onRename, o
     if (text.length < 2) {
       setResults([])
       setSearchError('')
-      setSearching(false)
+      setSearchStatus('idle')
       return undefined
     }
+    let cancelled = false
+    setSearchError('')
+    setSearchStatus('loading')
     const timer = setTimeout(async () => {
-      setSearching(true)
       try {
         const response = await onSearch(text)
+        if (cancelled) return
         setResults(Array.isArray(response) ? response : [])
         setSearchError('')
+        setSearchStatus('ready')
       } catch (error) {
+        if (cancelled) return
         setResults([])
         setSearchError('Поиск временно недоступен')
-      } finally {
-        setSearching(false)
+        setSearchStatus('error')
       }
     }, 250)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [query, onSearch])
 
   const beginRename = (event, conversation) => {
@@ -76,7 +83,8 @@ export default function Sidebar({ conversations, activeId, onSelect, onRename, o
     }
   }
 
-  const displayed = query.trim().length >= 2 ? results : conversations
+  const isSearchReady = searchStatus === 'ready'
+  const displayed = query.trim().length >= 2 && isSearchReady ? results : conversations
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <div className="sidebar-header">
@@ -106,14 +114,14 @@ export default function Sidebar({ conversations, activeId, onSelect, onRename, o
       {!collapsed && (
         <div className="sidebar-search">
           <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по чатам" aria-label="Поиск по чатам" />
-          {searching && <span className="sidebar-search-state">…</span>}
+          {searchStatus === 'loading' && <span className="spinner-small sidebar-search-state" aria-label="Идёт поиск" />}
         </div>
       )}
 
       <nav className="sidebar-list">
         {searchError && <div className="sidebar-empty">{searchError}</div>}
         {displayed.length === 0 && !collapsed && !searchError && (
-          <div className="sidebar-empty">{query.trim().length >= 2 ? 'Ничего не найдено' : 'Нет чатов'}</div>
+          <div className="sidebar-empty">{isSearchReady ? 'Ничего не найдено' : 'Нет чатов'}</div>
         )}
         {displayed.map((conv) => {
           const id = conv.conversationId || conv.id
