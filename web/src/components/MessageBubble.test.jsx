@@ -42,4 +42,18 @@ describe('MessageBubble thinking state', () => {
     expect(markup).toContain('thinking-content')
     expect(markup).toContain('aria-expanded="false"')
   })
+
+  it('does not show a RAG context summary below an assistant response', () => {
+    const markup = renderToStaticMarkup(
+      <MessageBubble
+        role="ASSISTANT"
+        content="Ответ"
+        ragMeta={{ usedRag: true, usedContext: true, usedChunks: 5, foundChunks: 5 }}
+        ragProgress={{ steps: { search: { status: 'active', label: 'Ищем похожие фрагменты…' } } }}
+      />,
+    )
+
+    expect(markup).not.toContain('Использован контекст:')
+    expect(markup).not.toContain('rag-progress')
+  })
 })

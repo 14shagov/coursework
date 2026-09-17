@@ -128,6 +128,7 @@ Vite откроется на `http://localhost:5173` и проксирует `/a
 | `POST` | `/api/conversations` | Создать диалог в `PLAIN` или `RAG` |
 | `GET` | `/api/conversations` | Список диалогов текущего пользователя |
 | `PUT` | `/api/conversations/{id}/title` | Переименовать диалог |
+| `DELETE` | `/api/conversations/{id}` | Удалить диалог и его сообщения |
 | `GET` | `/api/conversations/search?q=...` | Elasticsearch-поиск по названиям и сообщениям |
 | `GET` | `/api/conversations/{id}` | Получить диалог |
 | `GET` | `/api/conversations/{id}/messages` | История сообщений |

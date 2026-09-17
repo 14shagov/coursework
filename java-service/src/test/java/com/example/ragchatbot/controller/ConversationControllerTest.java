@@ -49,4 +49,17 @@ class ConversationControllerTest {
         assertThat(response.getHeaders().getFirst("X-Accel-Buffering")).isEqualTo("no");
         assertThat(response.getHeaders().getFirst("Cache-Control")).isEqualTo("no-cache, no-transform");
     }
+
+    @Test
+    void deletesOnlyConversationFromJwtOwner() {
+        ChatService chatService = mock(ChatService.class);
+        ConversationController controller = new ConversationController(chatService);
+        Jwt jwt = new Jwt("token", Instant.now(), Instant.now().plusSeconds(60),
+                Map.of("alg", "HS256"), Map.of("uid", 7));
+
+        ResponseEntity<Void> response = controller.deleteConversation(jwt, 22L);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+        verify(chatService).deleteConversation(7L, 22L);
+    }
 }

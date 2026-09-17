@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createConversation,
+  deleteConversation,
   getEmbeddingJob,
   listChatModels,
   listConversations,
@@ -147,5 +148,14 @@ describe('mock conversation messages', () => {
     expect(after).toHaveLength(before.length + 2)
     expect(assistant).toMatchObject({ role: 'ASSISTANT', content: expect.any(String), thinking: expect.any(String) })
     expect(assistant.thinking).toContain('Почему небо голубое?')
+  })
+
+  it('deletes a mock conversation and its history', async () => {
+    vi.stubEnv('VITE_MOCK', 'true')
+
+    await deleteConversation(2)
+
+    await expect(mockApiRequest('/api/conversations/2')).rejects.toThrow('Conversation not found')
+    expect(await mockApiRequest('/api/conversations/2/messages')).toEqual([])
   })
 })

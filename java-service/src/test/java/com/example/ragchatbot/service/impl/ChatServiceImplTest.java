@@ -87,6 +87,7 @@ class ChatServiceImplTest {
         conversation.setId(22L);
         conversation.setMode(com.example.ragchatbot.dto.ConversationMode.PLAIN);
         when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(conversationRepository.findById(22L)).thenReturn(Optional.of(conversation));
         when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
         when(pythonStreamingClient.chatStreaming(any())).thenReturn(Flux.just(
                 "{\"type\":\"content\",\"text\":\"Answer\"}",
@@ -108,11 +109,42 @@ class ChatServiceImplTest {
     }
 
     @Test
+    void preservesGeneratedTitleWhenSavingStreamingAssistantAnswer() {
+        Conversation conversation = new Conversation();
+        conversation.setId(22L);
+        conversation.setMode(com.example.ragchatbot.dto.ConversationMode.PLAIN);
+        conversation.setTitle("Новый чат");
+        conversation.setTitleGenerationStatus(com.example.ragchatbot.entity.TitleGenerationStatus.PENDING);
+
+        Conversation conversationWithGeneratedTitle = new Conversation();
+        conversationWithGeneratedTitle.setId(22L);
+        conversationWithGeneratedTitle.setMode(com.example.ragchatbot.dto.ConversationMode.PLAIN);
+        conversationWithGeneratedTitle.setTitle("Вопрос о Java");
+        conversationWithGeneratedTitle.setTitleGenerationStatus(com.example.ragchatbot.entity.TitleGenerationStatus.READY);
+
+        when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(conversationRepository.findById(22L)).thenReturn(Optional.of(conversationWithGeneratedTitle));
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
+        when(pythonStreamingClient.chatStreaming(any())).thenReturn(Flux.just(
+                "{\"type\":\"content\",\"text\":\"Answer\"}",
+                "{\"type\":\"done\",\"text\":\"\"}"));
+
+        chatService.sendMessageStreaming(7L, 22L, "Question").collectList().block();
+
+        ArgumentCaptor<Conversation> savedConversations = ArgumentCaptor.forClass(Conversation.class);
+        verify(conversationRepository, org.mockito.Mockito.times(2)).save(savedConversations.capture());
+        assertThat(savedConversations.getAllValues().get(1))
+                .extracting(Conversation::getTitle, Conversation::getTitleGenerationStatus)
+                .containsExactly("Вопрос о Java", com.example.ragchatbot.entity.TitleGenerationStatus.READY);
+    }
+
+    @Test
     void forwardsProviderReasoningSeparatelyFromAssistantContent() {
         Conversation conversation = new Conversation();
         conversation.setId(22L);
         conversation.setMode(com.example.ragchatbot.dto.ConversationMode.PLAIN);
         when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(conversationRepository.findById(22L)).thenReturn(Optional.of(conversation));
         when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
         when(pythonStreamingClient.chatStreaming(any())).thenReturn(Flux.just(
                 "{\"type\":\"reasoning\",\"text\":\"Thought\"}",
@@ -140,6 +172,7 @@ class ChatServiceImplTest {
         conversation.setMode(com.example.ragchatbot.dto.ConversationMode.PLAIN);
         conversation.setLlmModel("DeepSeek-V4-Flash");
         when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(conversationRepository.findById(22L)).thenReturn(Optional.of(conversation));
         when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
         when(pythonStreamingClient.chatStreaming(any())).thenReturn(Flux.just(
                 "{\"type\":\"content\",\"text\":\"Answer\"}",
@@ -199,6 +232,7 @@ class ChatServiceImplTest {
         conversation.setId(22L);
         conversation.setMode(com.example.ragchatbot.dto.ConversationMode.RAG);
         when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(conversationRepository.findById(22L)).thenReturn(Optional.of(conversation));
         when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
         when(ragService.createQueryEmbedding(eq("Question"), any())).thenReturn(List.of(1.0f));
         when(ragService.searchContext(eq(List.of(1.0f)), eq(5), any()))

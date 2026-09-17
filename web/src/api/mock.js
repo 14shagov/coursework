@@ -141,6 +141,16 @@ export async function mockApiRequest(path, options = {}) {
     return { ...conv }
   }
 
+  if (/^\/api\/conversations\/\d+$/.test(pathname) && method === 'DELETE') {
+    const id = Number(pathname.split('/').pop())
+    const index = mockConversations.findIndex((conversation) => conversation.id === id)
+    if (index < 0) { await wait(); throw new Error('Conversation not found') }
+    mockConversations.splice(index, 1)
+    delete mockMessages[id]
+    await wait()
+    return null
+  }
+
   // single conversation
   if (/^\/api\/conversations\/\d+$/.test(pathname) && method === 'GET') {
     const id = Number(pathname.split('/').pop())

@@ -29,6 +29,10 @@ export function updateConversationTitle(conversationId, title) {
   })
 }
 
+export function deleteConversation(conversationId) {
+  return apiRequest(`/api/conversations/${conversationId}`, { method: 'DELETE' })
+}
+
 export function searchConversations(query) {
   return apiRequest(`/api/conversations/search?q=${encodeURIComponent(query)}`)
 }

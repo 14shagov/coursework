@@ -93,6 +93,10 @@ public class SearchIndexService {
         indexLock.readLock().lock();
         try {
             String index = targetIndex == null ? alias() : targetIndex;
+            if (event.getEventType() == SearchOutboxEventType.DELETE_CONVERSATION) {
+                gateway.deleteByConversationId(index, event.getAggregateId());
+                return;
+            }
             List<SearchDocument> documents = documentsFor(event);
             if (!documents.isEmpty()) gateway.bulkUpsert(index, documents);
         } finally {
@@ -161,6 +165,10 @@ public class SearchIndexService {
     }
 
     private void applyInsideWriteLock(SearchOutboxEvent event, String target) {
+        if (event.getEventType() == SearchOutboxEventType.DELETE_CONVERSATION) {
+            gateway.deleteByConversationId(target, event.getAggregateId());
+            return;
+        }
         List<SearchDocument> documents = documentsFor(event);
         if (!documents.isEmpty()) gateway.bulkUpsert(target, documents);
     }

@@ -178,7 +178,11 @@ public class ChatServiceImpl implements ChatService {
                 })
                 .doOnComplete(() -> {
                     if (!answer.get().isEmpty()) {
-                        saveMessage(conversation, MessageRole.ASSISTANT, answer.get().toString(),
+                        // The stream can outlive title generation. Reloading avoids merging the stale
+                        // Conversation captured at stream start over an automatically generated title.
+                        Conversation conversationForAssistant = conversationRepository.findById(conversationId)
+                                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found"));
+                        saveMessage(conversationForAssistant, MessageRole.ASSISTANT, answer.get().toString(),
                                 nullIfBlank(thinking.get().toString()));
                     }
                 })
@@ -513,6 +517,14 @@ public class ChatServiceImpl implements ChatService {
         Conversation saved = conversationRepository.save(conversation);
         searchOutboxPublisher.publish(com.example.ragchatbot.entity.SearchOutboxEventType.UPSERT_CONVERSATION, saved.getId());
         return toConversationResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public void deleteConversation(Long userId, Long conversationId) {
+        Conversation conversation = ownedConversation(userId, conversationId);
+        conversationRepository.delete(conversation);
+        searchOutboxPublisher.publish(com.example.ragchatbot.entity.SearchOutboxEventType.DELETE_CONVERSATION, conversationId);
     }
 
     @Override

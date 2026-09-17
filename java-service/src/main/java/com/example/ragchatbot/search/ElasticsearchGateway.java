@@ -105,6 +105,12 @@ public class ElasticsearchGateway {
         }
     }
 
+    public void deleteByConversationId(String index, long conversationId) {
+        Map<String, Object> query = Map.of("query", Map.of("term", Map.of("conversationId", String.valueOf(conversationId))));
+        client().post().uri("/{index}/_delete_by_query", index).contentType(MediaType.APPLICATION_JSON).bodyValue(query)
+                .retrieve().toBodilessEntity().block(REQUEST_TIMEOUT);
+    }
+
     public JsonNode search(Map<String, Object> query) {
         String response = client().post().uri("/{alias}/_search", properties.alias()).contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(query).retrieve().bodyToMono(String.class).block(REQUEST_TIMEOUT);

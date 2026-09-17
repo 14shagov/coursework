@@ -20,6 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -72,6 +73,12 @@ public class ConversationController {
     public ResponseEntity<ConversationResponseDto> updateConversationTitle(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
                                                                              @Valid @RequestBody ConversationTitleUpdateDto request) {
         return ResponseEntity.ok(chatService.updateConversationTitle(JwtUserIdExtractor.extract(jwt), id, request.getTitle()));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteConversation(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        chatService.deleteConversation(JwtUserIdExtractor.extract(jwt), id);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/search")

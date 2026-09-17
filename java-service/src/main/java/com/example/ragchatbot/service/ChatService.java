@@ -15,6 +15,8 @@ public interface ChatService {
 
     ConversationResponseDto updateConversationTitle(Long userId, Long conversationId, String title);
 
+    void deleteConversation(Long userId, Long conversationId);
+
     List<com.example.ragchatbot.dto.ChatModelDto> getChatModels();
 
     MessageResponseDto sendMessage(Long userId, Long conversationId, String content);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   createConversation,
   listChatModels,
@@ -10,11 +10,14 @@ import {
   startMessageStreaming,
   updateConversationModel,
   updateConversationTitle,
+  deleteConversation,
   searchConversations,
   startSearchReindex,
   getSearchReindex,
 } from '../api/chat'
 import MessageBubble from '../components/MessageBubble'
+import ChatComposer from '../components/ChatComposer'
+import RagProgress from '../components/RagProgress'
 import Sidebar from '../components/Sidebar'
 
 let localMessageSequence = 0
@@ -65,9 +68,62 @@ function ModelGlyph() {
   )
 }
 
+function ModelPicker({ modelId, models, onChange, disabled, variant = 'setup' }) {
+  const [open, setOpen] = useState(false)
+  const pickerRef = useRef(null)
+  const details = getModelDetails(modelId)
+
+  useEffect(() => {
+    if (!open) return undefined
+    const closeOnOutsidePress = (event) => {
+      if (!pickerRef.current?.contains(event.target)) setOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  return (
+    <div ref={pickerRef} className={`model-picker model-picker-${variant}`}>
+      <button type="button" className="model-picker-trigger" onClick={() => setOpen((value) => !value)} disabled={disabled || models.length === 0} aria-haspopup="listbox" aria-expanded={open}>
+        <span className="model-picker-name">{details.name}</span>
+        <span className="model-picker-chevron" aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="model-picker-menu" role="listbox" aria-label="Выбор модели">
+          {models.map((model) => {
+            const option = getModelDetails(model.id)
+            const selected = model.id === modelId
+            return <button key={model.id} type="button" role="option" aria-selected={selected} className={`model-picker-option ${selected ? 'model-picker-option-selected' : ''}`} onClick={() => { onChange({ target: { value: model.id } }); setOpen(false) }}>
+              <span className="model-picker-option-name">{option.name}</span>
+              <span className="model-picker-option-description">{option.description}</span>
+              {selected && <span className="model-picker-check" aria-label="Выбрано">✓</span>}
+            </button>
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ModelSelector({ modelId, models, onChange, disabled, saving, variant = 'chat' }) {
   const details = getModelDetails(modelId)
   const isSetup = variant === 'setup'
+
+  if (variant === 'composer') {
+    return (
+      <div className="composer-model-selector">
+        <ModelPicker variant="composer" modelId={modelId} models={models} onChange={onChange} disabled={disabled} />
+        {saving && <span className="composer-model-saving" role="status">Сохраняем…</span>}
+      </div>
+    )
+  }
 
   return (
     <div className={`model-selector model-selector-${variant}`}>
@@ -78,18 +134,7 @@ function ModelSelector({ modelId, models, onChange, disabled, saving, variant = 
         {isSetup && <span className="model-selector-description">{details.description}</span>}
       </div>
       <div className="model-selector-actions">
-        <select
-          className="model-selector-input"
-          aria-label={isSetup ? 'Модель для ответов в новом чате' : 'Модель ответа в текущем чате'}
-          value={modelId}
-          onChange={onChange}
-          disabled={disabled || models.length === 0}
-        >
-          {models.map((model) => {
-            const option = getModelDetails(model.id)
-            return <option key={model.id} value={model.id}>{option.name} — {option.description}</option>
-          })}
-        </select>
+        <ModelPicker variant={isSetup ? 'setup' : 'chat'} modelId={modelId} models={models} onChange={onChange} disabled={disabled} />
         <span className="reasoning-badge"><span className="reasoning-badge-dot" />Reasoning</span>
       </div>
       {saving && <span className="model-selector-saving" role="status">Сохраняем…</span>}
@@ -131,6 +176,14 @@ export function isNearMessagesBottom({ scrollHeight, scrollTop, clientHeight }, 
   return scrollHeight - scrollTop - clientHeight <= threshold
 }
 
+export function shouldScrollLoadedConversationToBottom(scrollTargetId, conversationId) {
+  return scrollTargetId != null && String(scrollTargetId) === String(conversationId)
+}
+
+export function isLatestConversationLoad(loadRequestId, currentLoadRequestId) {
+  return loadRequestId === currentLoadRequestId
+}
+
 function createRagStepStates() {
   return {
     embedding: { status: 'pending', label: 'Эмбеддим запрос…' },
@@ -144,6 +197,7 @@ function ChatLayout({
   activeId,
   onSelectConversation,
   onRenameConversation,
+  onDeleteConversation,
   onSearchConversations,
   onNewChat,
   onLogout,
@@ -159,6 +213,7 @@ function ChatLayout({
     activeId,
     onSelect: onSelectConversation,
     onRename: onRenameConversation,
+    onDelete: onDeleteConversation,
     onSearch: onSearchConversations,
     onNewChat,
     onLogout,
@@ -210,11 +265,16 @@ export default function ChatPage({ onLogout }) {
   const [streamingAssistantId, setStreamingAssistantId] = useState(null)
   const [highlightedMessageId, setHighlightedMessageId] = useState(null)
   const [searchReindexJob, setSearchReindexJob] = useState(null)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))
   const messagesContainerRef = useRef(null)
   const autoFollowRef = useRef(true)
+  const initialScrollToBottomRef = useRef(null)
+  const conversationLoadRequestRef = useRef(0)
   const scrollFrameRef = useRef(null)
   const ragProgressDismissedRef = useRef(false)
   const streamCancelRef = useRef(null)
+  const streamCancelledRef = useRef(false)
   const embeddingJobTimerRef = useRef(null)
   const searchReindexTimerRef = useRef(null)
   const titleRefreshTimersRef = useRef([])
@@ -250,6 +310,10 @@ export default function ChatPage({ onLogout }) {
   const scrollToBottom = (behavior = 'smooth') => {
     const container = messagesContainerRef.current
     if (container) {
+      if (behavior === 'instant') {
+        container.scrollTop = container.scrollHeight
+        return
+      }
       container.scrollTo({ top: container.scrollHeight, behavior })
       return
     }
@@ -268,35 +332,59 @@ export default function ChatPage({ onLogout }) {
     const container = messagesContainerRef.current
     if (!container) return
     autoFollowRef.current = isNearMessagesBottom(container)
+    setShowScrollToBottom(!autoFollowRef.current)
   }
 
+  useLayoutEffect(() => {
+    if (!shouldScrollLoadedConversationToBottom(initialScrollToBottomRef.current, conversationId)) return
+    initialScrollToBottomRef.current = null
+    scrollToBottom('instant')
+  }, [conversationId, messages])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
   const loadConversation = async (conv) => {
+    const loadRequestId = conversationLoadRequestRef.current + 1
+    conversationLoadRequestRef.current = loadRequestId
     setLoading(true)
     setError('')
     clearRagProgress()
     autoFollowRef.current = true
+    setShowScrollToBottom(false)
+    initialScrollToBottomRef.current = null
+    setMessages([])
     try {
       const targetId = conv.conversationId || conv.id
       persistConversation(targetId, conv.mode || 'PLAIN')
       const convData = await getConversation(targetId)
+      if (!isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) return
       setConversationMode(convData?.mode || conv.mode || 'PLAIN')
       setSelectedLlmModel(convData?.llmModel || defaultChatModel(chatModels))
       const history = await getMessages(targetId)
-      setMessages(Array.isArray(history) ? history : [])
+      if (!isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) return
       if (conv.matchedMessageId) {
         setHighlightedMessageId(conv.matchedMessageId)
-        setTimeout(() => document.getElementById(`message-${conv.matchedMessageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100)
+        setTimeout(() => {
+          if (isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) {
+            document.getElementById(`message-${conv.matchedMessageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }, 100)
       } else {
         setHighlightedMessageId(null)
+        initialScrollToBottomRef.current = targetId
       }
+      setMessages(Array.isArray(history) ? history : [])
       setShowModeSelect(false)
       setSidebarMobileOpen(false)
-      setTimeout(() => scrollToBottom(), 100)
     } catch (e) {
+      if (!isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) return
       console.error('[chat] load:error', e)
       setError('Ошибка загрузки: ' + e.message)
     } finally {
-      setLoading(false)
+      if (isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) setLoading(false)
     }
   }
 
@@ -315,6 +403,8 @@ export default function ChatPage({ onLogout }) {
   useEffect(() => {
     const savedId = localStorage.getItem('conversationId')
     async function init() {
+      const loadRequestId = conversationLoadRequestRef.current + 1
+      conversationLoadRequestRef.current = loadRequestId
       setLoading(true)
       setError('')
       try {
@@ -322,14 +412,18 @@ export default function ChatPage({ onLogout }) {
         await refreshConversations()
         if (savedId) {
           const convData = await getConversation(savedId)
+          if (!isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) return
           persistConversation(Number(savedId), convData?.mode || 'PLAIN')
           setSelectedLlmModel(convData?.llmModel || defaultChatModel(models))
           const history = await getMessages(savedId)
+          if (!isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) return
+          initialScrollToBottomRef.current = savedId
           setMessages(Array.isArray(history) ? history : [])
         } else {
           setShowModeSelect(true)
         }
       } catch (e) {
+        if (!isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) return
         console.error('[chat] init:error', e)
         localStorage.removeItem('conversationId')
         setConversationId(null)
@@ -337,7 +431,7 @@ export default function ChatPage({ onLogout }) {
         setShowModeSelect(true)
         setError('Ошибка загрузки чата: ' + e.message)
       } finally {
-        setLoading(false)
+        if (isLatestConversationLoad(loadRequestId, conversationLoadRequestRef.current)) setLoading(false)
       }
     }
 
@@ -357,6 +451,8 @@ export default function ChatPage({ onLogout }) {
   }, [messages, streamingAssistantId])
 
   const handleCreateConversation = async (mode) => {
+    conversationLoadRequestRef.current += 1
+    initialScrollToBottomRef.current = null
     setLoading(true)
     setError('')
     try {
@@ -382,6 +478,8 @@ export default function ChatPage({ onLogout }) {
     const assistantId = pendingMessages.assistant.id
     setLoading(true)
     autoFollowRef.current = true
+    setShowScrollToBottom(false)
+    streamCancelledRef.current = false
     setInput('')
     setError('')
     setMessages((prev) => [...prev, pendingMessages.user, pendingMessages.assistant])
@@ -415,10 +513,9 @@ export default function ChatPage({ onLogout }) {
                 }
               })
             } else if (chunk.type === 'rag_search') {
-              if (ragProgressDismissedRef.current) return
-              setRagNotice('Найдено чанков: ' + (chunk.foundChunks ?? '?'))
+              if (!ragProgressDismissedRef.current) setRagNotice('Найдено чанков: ' + (chunk.foundChunks ?? '?'))
             } else if (chunk.type === 'thinking') {
-              if (typeof chunk.thinking !== 'string' || !chunk.thinking.trim()) return
+              if (typeof chunk.thinking !== 'string' || chunk.thinking === '') return
               setMessages((prev) => appendAssistantText(prev, assistantId, 'thinking', chunk.thinking))
             } else if (chunk.type === 'content') {
               if (typeof chunk.content !== 'string' || !chunk.content) return
@@ -443,7 +540,7 @@ export default function ChatPage({ onLogout }) {
               }
 
               // Ensure RAG steps complete even if some events were missing.
-              if (conversationMode === 'RAG') {
+              if (conversationMode === 'RAG' && !ragProgressDismissedRef.current) {
                 setRagStepStates((prev) => {
                   const base = prev || createRagStepStates()
                   return {
@@ -463,9 +560,13 @@ export default function ChatPage({ onLogout }) {
       await refreshConversations()
       setTimeout(() => scrollToBottom(), 100)
     } catch (e) {
-      setMessages((prev) => prev.filter((message) => message.id !== assistantId))
-      setError('Ошибка отправки: ' + e.message)
-      clearRagProgress()
+      if (e?.name === 'AbortError' && streamCancelledRef.current) {
+        setMessages((prev) => prev.map((message) => message.id === assistantId ? { ...message, isStreaming: false, wasCancelled: true } : message))
+      } else {
+        setMessages((prev) => prev.filter((message) => message.id !== assistantId))
+        setError('Ошибка отправки: ' + e.message)
+        clearRagProgress()
+      }
       setStreamingAssistantId(null)
     } finally {
       refreshPendingTitles()
@@ -474,7 +575,15 @@ export default function ChatPage({ onLogout }) {
     }
   }
 
+  const onStopStreaming = () => {
+    if (!streamCancelRef.current) return
+    streamCancelledRef.current = true
+    streamCancelRef.current()
+  }
+
   const onNewChat = () => {
+    conversationLoadRequestRef.current += 1
+    initialScrollToBottomRef.current = null
     clearRagProgress()
     autoFollowRef.current = true
     setShowModeSelect(true)
@@ -492,6 +601,17 @@ export default function ChatPage({ onLogout }) {
       await refreshConversations()
     } catch (e) {
       setError('Ошибка переименования: ' + e.message)
+      throw e
+    }
+  }
+
+  const onDeleteConversation = async (id) => {
+    try {
+      await deleteConversation(id)
+      if (Number(id) === Number(conversationId)) onNewChat()
+      await refreshConversations()
+    } catch (e) {
+      setError('Ошибка удаления: ' + e.message)
       throw e
     }
   }
@@ -574,6 +694,7 @@ export default function ChatPage({ onLogout }) {
         activeId={conversationId}
         onSelectConversation={loadConversation}
         onRenameConversation={onRenameConversation}
+        onDeleteConversation={onDeleteConversation}
         onSearchConversations={onSearchConversations}
         onNewChat={onNewChat}
         onLogout={onLogout}
@@ -655,6 +776,7 @@ export default function ChatPage({ onLogout }) {
       activeId={conversationId}
       onSelectConversation={loadConversation}
       onRenameConversation={onRenameConversation}
+      onDeleteConversation={onDeleteConversation}
       onSearchConversations={onSearchConversations}
       onNewChat={onNewChat}
       onLogout={onLogout}
@@ -664,7 +786,7 @@ export default function ChatPage({ onLogout }) {
       sidebarMobileOpen={sidebarMobileOpen}
       onToggleSidebarMobile={() => setSidebarMobileOpen((v) => !v)}
     >
-      <div className="chat-container">
+      <div className="chat-container chat-container-chat">
           <div className="chat-header">
             <button className="btn-icon btn-icon-mobile" onClick={() => setSidebarMobileOpen((v) => !v)} title="Меню">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -675,59 +797,40 @@ export default function ChatPage({ onLogout }) {
             </button>
             <h1>RAG Chatbot</h1>
             <div className="header-right">
-              <ModelSelector
-                modelId={selectedLlmModel}
-                models={chatModels}
-                onChange={onChangeChatModel}
-                disabled={loading}
-                saving={modelChangeLoading}
-              />
-              {conversationMode === 'RAG' && (
-                <span className="mode-indicator">
+              <span className={`mode-indicator mode-indicator-${conversationMode.toLowerCase()}`} title={conversationMode === 'RAG' ? 'Ответ строится с поиском по базе знаний' : 'Ответ без поиска по базе знаний'}>
+                {conversationMode === 'RAG' && (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
                     <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
                   </svg>
-                  RAG
-                </span>
-              )}
-              <button
-                className="embeddings-init-button"
-                onClick={onInitEmbeddings}
-                disabled={embeddingInitLoading}
-                title="Инициализировать эмбеддинги"
-              >
-                {embeddingInitLoading ? '⏳' : '🧠'}
-              </button>
-              <button className="embeddings-init-button" onClick={onStartSearchReindex} title="Переиндексировать поиск">🔎</button>
+                )}
+                {conversationMode === 'RAG' ? 'По базе знаний' : 'Свободный чат'}
+              </span>
+              <button className="theme-toggle" onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} title={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'} aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}>{theme === 'dark' ? '☀' : '☾'}</button>
+              <div className="header-admin-actions" aria-label="Администрирование">
+                <button className="embeddings-init-button" onClick={onInitEmbeddings} disabled={embeddingInitLoading} title="Инициализировать эмбеддинги" aria-label="Инициализировать эмбеддинги">{embeddingInitLoading ? '⏳' : '🧠'}</button>
+                <button className="embeddings-init-button" onClick={onStartSearchReindex} title="Переиндексировать поиск" aria-label="Переиндексировать поиск">🔎</button>
+              </div>
             </div>
           </div>
 
+          <div className="rag-progress-region">
+            <RagProgress steps={ragStepStates} notice={ragNotice} onDismiss={dismissRagProgress} />
+          </div>
+
           <div className="messages" key={conversationId} ref={messagesContainerRef} onScroll={onMessagesScroll}>
-            {/* RAG progress — real steps from SSE events */}
-            {conversationMode === 'RAG' && ragStepStates && (
-              <div className="rag-progress">
-                <div className="rag-progress-header">
-                  <span>Обработка RAG</span>
-                  <button type="button" className="rag-progress-close" onClick={dismissRagProgress} aria-label="Закрыть этапы RAG" title="Закрыть">
-                    ×
-                  </button>
-                </div>
-                {Object.entries(ragStepStates).map(([stepName, step]) => (
-                  <div className={`rag-step rag-step-${step.status}`} key={stepName}>
-                    {step.status === 'active' && <span className="rag-step-icon spinner-small" />}
-                    {step.status === 'done' && <span className="rag-step-icon rag-check">✓</span>}
-                    {step.status === 'error' && <span className="rag-step-icon rag-error">✗</span>}
-                    {step.status === 'pending' && <span className="rag-step-icon">○</span>}
-                    <span className="rag-step-label">{step.label}</span>
-                  </div>
-                ))}
-                {ragNotice && <div className="rag-notice" role="status">{ragNotice}</div>}
-              </div>
-            )}
             {messages.length === 0 && !loading && (
               <div className="messages-empty">
-                <p>Начните диалог{conversationMode === 'RAG' ? ' — поиск по базе знаний включён' : ''}</p>
+                <div>
+                  <h2>{conversationMode === 'RAG' ? 'Спросите по вашим материалам' : 'Чем помочь?'}</h2>
+                  <p>{conversationMode === 'RAG' ? 'Я найду релевантные фрагменты перед ответом.' : 'Задайте вопрос, попросите объяснить или написать текст.'}</p>
+                  <div className="prompt-suggestions">
+                    {(conversationMode === 'RAG'
+                      ? ['Что известно об экзопланетах?', 'Найди главное по этой теме', 'Какие источники использованы?']
+                      : ['Объясни сложную тему простыми словами', 'Составь краткий план', 'Помоги сравнить варианты']
+                    ).map((prompt) => <button type="button" key={prompt} onClick={() => setInput(prompt)}>{prompt}</button>)}
+                  </div>
+                </div>
               </div>
             )}
             {messages.map((msg, idx) => (
@@ -739,6 +842,7 @@ export default function ChatPage({ onLogout }) {
                 content={msg.content}
                 thinking={msg.thinking}
                 isStreaming={msg.isStreaming}
+                wasCancelled={msg.wasCancelled}
                 streamingStatus={
                   msg.isStreaming && !msg.content && conversationMode === 'PLAIN'
                     ? 'Формирую ответ…'
@@ -755,6 +859,15 @@ export default function ChatPage({ onLogout }) {
             )}
           </div>
 
+          {showScrollToBottom && (
+            <button type="button" className="scroll-to-bottom" onClick={() => { autoFollowRef.current = true; setShowScrollToBottom(false); scrollToBottom() }} title="К последнему сообщению" aria-label="К последнему сообщению">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v13" />
+                <path d="m6.5 13 5.5 5.5 5.5-5.5" />
+              </svg>
+            </button>
+          )}
+
           {error && <div className="error">{error}</div>}
           {embeddingJob && (
             <div className="embedding-job-status">
@@ -769,20 +882,15 @@ export default function ChatPage({ onLogout }) {
               {searchReindexJob.errorMessage && ` — ${searchReindexJob.errorMessage}`}
             </div>
           )}
-          <form onSubmit={onSubmit} className="input-row">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Введите сообщение..."
-              autoComplete="off"
-            />
-            <button type="submit" disabled={loading || !input.trim()} title="Отправить" className="send-button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-          </form>
+          <ChatComposer
+            value={input}
+            onChange={setInput}
+            onSubmit={onSubmit}
+            onCancel={onStopStreaming}
+            disabled={loading && !streamingAssistantId}
+            isStreaming={Boolean(streamingAssistantId)}
+            modelControl={<ModelSelector variant="composer" modelId={selectedLlmModel} models={chatModels} onChange={onChangeChatModel} disabled={loading} saving={modelChangeLoading} />}
+          />
       </div>
     </ChatLayout>
   )
