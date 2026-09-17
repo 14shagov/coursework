@@ -19,6 +19,84 @@ import Sidebar from '../components/Sidebar'
 
 let localMessageSequence = 0
 
+const MODEL_DETAILS = {
+  'DeepSeek-V4-Flash': {
+    name: 'DeepSeek V4 Flash',
+    description: 'Быстрые ответы и рассуждения',
+    provider: 'DeepSeek',
+  },
+  'DeepSeek-V4-Pro': {
+    name: 'DeepSeek V4 Pro',
+    description: 'Больше времени на сложные задачи',
+    provider: 'DeepSeek',
+  },
+  'glm-4.5-air': {
+    name: 'GLM 4.5 Air',
+    description: 'Сбалансированная reasoning-модель',
+    provider: 'GLM',
+  },
+  'Qwen3.6-35B-A3B': {
+    name: 'Qwen 3.6 35B',
+    description: 'Универсальная reasoning-модель',
+    provider: 'Qwen',
+  },
+  'step-3.7-flash': {
+    name: 'Step 3.7 Flash',
+    description: 'Быстрый режим с рассуждениями',
+    provider: 'Step',
+  },
+}
+
+function getModelDetails(modelId) {
+  return MODEL_DETAILS[modelId] || {
+    name: modelId || 'Выберите модель',
+    description: 'Модель для ответов в этом чате',
+    provider: 'LLM',
+  }
+}
+
+function ModelGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3a4 4 0 0 0-4 4v1a4 4 0 0 0-2 3.46V13a4 4 0 0 0 2 3.46V17a4 4 0 0 0 4 4" />
+      <path d="M12 3a4 4 0 0 1 4 4v1a4 4 0 0 1 2 3.46V13a4 4 0 0 1-2 3.46V17a4 4 0 0 1-4 4" />
+      <path d="M9 12h6M12 9v6" />
+    </svg>
+  )
+}
+
+function ModelSelector({ modelId, models, onChange, disabled, saving, variant = 'chat' }) {
+  const details = getModelDetails(modelId)
+  const isSetup = variant === 'setup'
+
+  return (
+    <div className={`model-selector model-selector-${variant}`}>
+      <div className="model-selector-icon"><ModelGlyph /></div>
+      <div className="model-selector-copy">
+        <span className="model-selector-label">{isSetup ? 'Модель для ответов' : 'Модель ответа'}</span>
+        <span className="model-selector-name">{details.name}</span>
+        {isSetup && <span className="model-selector-description">{details.description}</span>}
+      </div>
+      <div className="model-selector-actions">
+        <select
+          className="model-selector-input"
+          aria-label={isSetup ? 'Модель для ответов в новом чате' : 'Модель ответа в текущем чате'}
+          value={modelId}
+          onChange={onChange}
+          disabled={disabled || models.length === 0}
+        >
+          {models.map((model) => {
+            const option = getModelDetails(model.id)
+            return <option key={model.id} value={model.id}>{option.name} — {option.description}</option>
+          })}
+        </select>
+        <span className="reasoning-badge"><span className="reasoning-badge-dot" />Reasoning</span>
+      </div>
+      {saving && <span className="model-selector-saving" role="status">Сохраняем…</span>}
+    </div>
+  )
+}
+
 function nextLocalMessageId() {
   if (globalThis.crypto?.randomUUID) {
     return `local-${globalThis.crypto.randomUUID()}`
@@ -524,13 +602,20 @@ export default function ChatPage({ onLogout }) {
                 </svg>
               </div>
               <h2 className="mode-select-title">Добро пожаловать!</h2>
-              <p className="mode-select-subtitle">Выберите режим для нового чата:</p>
-              <label className="model-select-field">
-                <span>Модель</span>
-                <select value={selectedLlmModel} onChange={onChangeChatModel} disabled={loading || chatModels.length === 0}>
-                  {chatModels.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
-                </select>
-              </label>
+              <p className="mode-select-subtitle">Сначала настройте модель, затем выберите режим работы.</p>
+              <section className="model-choice-card" aria-label="Выбор модели">
+                <div className="setup-step">Шаг 1</div>
+                <ModelSelector
+                  variant="setup"
+                  modelId={selectedLlmModel}
+                  models={chatModels}
+                  onChange={onChangeChatModel}
+                  disabled={loading}
+                  saving={modelChangeLoading}
+                />
+                <p className="model-choice-hint">Thinking будет показан отдельным блоком в ответе. Модель можно сменить позже.</p>
+              </section>
+              <div className="setup-step setup-step-mode">Шаг 2 · Режим чата</div>
               <div className="mode-cards">
                 <button className="mode-card" onClick={() => handleCreateConversation('PLAIN')} disabled={loading || !selectedLlmModel}>
                   <div className="mode-card-icon">
@@ -539,8 +624,9 @@ export default function ChatPage({ onLogout }) {
                       <path d="M8 12h8M12 8v8" />
                     </svg>
                   </div>
+                  <span className="mode-card-eyebrow">Свободный разговор</span>
                   <h3>PLAIN</h3>
-                  <p>Обычный LLM-чат без базы знаний</p>
+                  <p>Ответы модели без поиска по вашим материалам</p>
                 </button>
                 <button className="mode-card" onClick={() => handleCreateConversation('RAG')} disabled={loading || !selectedLlmModel}>
                   <div className="mode-card-icon">
@@ -549,8 +635,9 @@ export default function ChatPage({ onLogout }) {
                       <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
                     </svg>
                   </div>
+                  <span className="mode-card-eyebrow">Работа с материалами</span>
                   <h3>RAG</h3>
-                  <p>Чат с поиском по базе знаний</p>
+                  <p>Ищет контекст в базе знаний перед ответом</p>
                 </button>
               </div>
               {loading && <div className="loading"><div className="spinner" /></div>}
@@ -588,15 +675,13 @@ export default function ChatPage({ onLogout }) {
             </button>
             <h1>RAG Chatbot</h1>
             <div className="header-right">
-              <select
-                className="chat-model-select"
-                aria-label="Модель чата"
-                value={selectedLlmModel}
+              <ModelSelector
+                modelId={selectedLlmModel}
+                models={chatModels}
                 onChange={onChangeChatModel}
-                disabled={loading || modelChangeLoading || chatModels.length === 0}
-              >
-                {chatModels.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
-              </select>
+                disabled={loading}
+                saving={modelChangeLoading}
+              />
               {conversationMode === 'RAG' && (
                 <span className="mode-indicator">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
