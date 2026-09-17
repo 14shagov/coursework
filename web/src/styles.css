@@ -657,15 +657,132 @@ button:disabled {
   padding: 8px;
 }
 
-.sidebar-search { position: relative; padding: 10px 12px 2px; }
-.sidebar-search input, .sidebar-title-input { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 13px; padding: 8px 10px; }
-.sidebar-search-state { position: absolute; right: 22px; top: 15px; display: block; }
+.sidebar-search {
+  padding: 12px 12px 6px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.32);
+}
+
+.sidebar-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid rgba(71, 85, 105, 0.9);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(28, 37, 65, 0.96), rgba(20, 33, 61, 0.96));
+  color: var(--text-muted);
+  transition: border-color var(--transition), box-shadow var(--transition), background-color var(--transition);
+}
+
+.sidebar-search-field:focus-within {
+  border-color: #7189ff;
+  background: rgba(28, 37, 65, 1);
+  box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.18), 0 8px 18px rgba(7, 12, 35, 0.2);
+  color: #b9c5ff;
+}
+
+.sidebar-search-active .sidebar-search-field {
+  border-color: rgba(113, 137, 255, 0.7);
+}
+
+.sidebar-search-field svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.sidebar-search input,
+.sidebar-title-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.sidebar-title-input {
+  padding: 6px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+
+.sidebar-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.sidebar-search input::placeholder {
+  color: #71809a;
+}
+
+.sidebar-search-state {
+  display: block;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-search-clear {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.14);
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sidebar-search-clear:hover {
+  background: rgba(148, 163, 184, 0.25);
+  color: var(--text-primary);
+}
+
+.sidebar-search-hint {
+  min-height: 22px;
+  padding: 5px 2px 0 25px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.sidebar-search-results-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-search-results-label span:last-child {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-subtle);
+  color: #aab9ff;
+  font-size: 10px;
+}
 .sidebar-item { padding: 0; }
 .sidebar-item-main { display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 0; padding: 10px 12px; border: 0; background: transparent; color: inherit; text-align: left; }
 .sidebar-more { color: var(--text-muted); background: transparent; padding: 8px 10px; font-size: 18px; line-height: 1; }
 .sidebar-more:hover { color: var(--text-primary); }
 .sidebar-search-snippet { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-muted); font-size: 11px; }
-.sidebar-search-snippet mark, .sidebar-item-title mark { background: transparent; color: #facc15; font: inherit; }
+.sidebar-search-snippet mark, .sidebar-item-title mark { padding: 0 1px; border-radius: 2px; background: rgba(250, 204, 21, 0.16); color: #fde68a; font: inherit; }
 .message-highlighted .bubble { outline: 2px solid #facc15; outline-offset: 2px; }
 
 .sidebar-list::-webkit-scrollbar {
@@ -682,6 +799,21 @@ button:disabled {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.sidebar-empty-search {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+  padding: 22px 14px;
+  border: 1px dashed rgba(100, 116, 139, 0.46);
+  border-radius: 10px;
+  background: rgba(15, 52, 96, 0.1);
+}
+
+.sidebar-empty-search span {
+  color: #71809a;
+  font-size: 11px;
 }
 
 .sidebar-item {

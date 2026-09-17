@@ -5,6 +5,7 @@ import {
   getEmbeddingJob,
   listChatModels,
   listConversations,
+  searchConversations,
   startEmbeddingJob,
   startMessageStreaming,
   updateConversationModel,
@@ -122,6 +123,18 @@ describe('conversation contract', () => {
 })
 
 describe('mock conversation messages', () => {
+  it('searches chat messages and preserves highlighted snippets', async () => {
+    vi.stubEnv('VITE_MOCK', 'true')
+
+    const results = await searchConversations('экзо')
+
+    expect(results).toEqual([expect.objectContaining({
+      conversationId: 2,
+      matchedIn: 'MESSAGE',
+      snippet: expect.stringContaining('<em>экзо</em>'),
+    })])
+  })
+
   it('persists streamed reasoning so it is available after reopening the chat', async () => {
     vi.stubEnv('VITE_MOCK', 'true')
     const before = await mockApiRequest('/api/conversations/1/messages')

@@ -41,6 +41,44 @@ function conversationIdFromMessagesPath(pathname) {
   return Number(pathname.split('/')[3])
 }
 
+function highlightSearchTerm(value, query) {
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return String(value || '').replace(new RegExp(`(${escapedQuery})`, 'ig'), '<em>$1</em>')
+}
+
+function searchMockConversations(query) {
+  const normalizedQuery = query.toLowerCase()
+
+  return mockConversations.flatMap((conversation) => {
+    const title = conversation.title || 'Без названия'
+    const messages = mockMessages[conversation.id] || []
+    const lastMessage = messages.at(-1)
+
+    if (title.toLowerCase().includes(normalizedQuery)) {
+      return [{
+        conversationId: conversation.id,
+        title: highlightSearchTerm(title, query),
+        matchedIn: 'TITLE',
+        snippet: highlightSearchTerm(title, query),
+        matchedMessageId: null,
+        lastMessageAt: lastMessage?.createdAt || conversation.createdAt,
+      }]
+    }
+
+    const matchedMessage = messages.find((message) => String(message.content || '').toLowerCase().includes(normalizedQuery))
+    if (!matchedMessage) return []
+
+    return [{
+      conversationId: conversation.id,
+      title,
+      matchedIn: 'MESSAGE',
+      snippet: highlightSearchTerm(matchedMessage.content, query),
+      matchedMessageId: matchedMessage.id,
+      lastMessageAt: lastMessage?.createdAt || conversation.createdAt,
+    }]
+  })
+}
+
 export function isMockEnabled() {
   return import.meta.env.VITE_MOCK === 'true'
 }
@@ -48,6 +86,12 @@ export function isMockEnabled() {
 export async function mockApiRequest(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
   const pathname = getPathname(path)
+
+  if (pathname === '/api/conversations/search' && method === 'GET') {
+    const query = new URLSearchParams(path.split('?')[1] || '').get('q')?.trim() || ''
+    await wait()
+    return query.length >= 2 ? searchMockConversations(query) : []
+  }
 
   // auth
   if (pathname === '/api/auth/register' && method === 'POST') {

@@ -10,6 +10,15 @@ function Highlight({ value }) {
   })
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4" />
+    </svg>
+  )
+}
+
 export default function Sidebar({ conversations, activeId, onSelect, onRename, onSearch, onNewChat, onLogout, loading, collapsed, onToggleCollapse }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -84,7 +93,23 @@ export default function Sidebar({ conversations, activeId, onSelect, onRename, o
   }
 
   const isSearchReady = searchStatus === 'ready'
-  const displayed = query.trim().length >= 2 && isSearchReady ? results : conversations
+  const queryText = query.trim()
+  const hasSearchQuery = queryText.length > 0
+  const isSearchLoading = searchStatus === 'loading'
+  const displayed = hasSearchQuery ? (isSearchReady ? results : []) : conversations
+  const clearSearch = () => {
+    setQuery('')
+    searchInputRef.current?.focus()
+  }
+  const searchMessage = !hasSearchQuery
+    ? 'Поиск по названиям и сообщениям'
+    : queryText.length < 2
+      ? 'Введите ещё символ для поиска'
+      : isSearchLoading
+        ? 'Ищем по истории чатов…'
+        : isSearchReady
+          ? results.length === 1 ? 'Найден 1 результат' : `Найдено: ${results.length}`
+          : ''
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <div className="sidebar-header">
@@ -112,16 +137,45 @@ export default function Sidebar({ conversations, activeId, onSelect, onRename, o
       </div>
 
       {!collapsed && (
-        <div className="sidebar-search">
-          <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по чатам" aria-label="Поиск по чатам" />
-          {searchStatus === 'loading' && <span className="spinner-small sidebar-search-state" aria-label="Идёт поиск" />}
+        <div className={`sidebar-search ${hasSearchQuery ? 'sidebar-search-active' : ''}`}>
+          <div className="sidebar-search-field">
+            <SearchIcon />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && hasSearchQuery) clearSearch()
+              }}
+              placeholder="Найти чат или сообщение"
+              aria-label="Поиск по чатам и сообщениям"
+              aria-describedby="sidebar-search-hint"
+              aria-busy={isSearchLoading}
+            />
+            {isSearchLoading && <span className="spinner-small sidebar-search-state" aria-label="Идёт поиск" />}
+            {!isSearchLoading && hasSearchQuery && (
+              <button className="sidebar-search-clear" type="button" onClick={clearSearch} aria-label="Очистить поиск" title="Очистить поиск">×</button>
+            )}
+          </div>
+          <div className="sidebar-search-hint" id="sidebar-search-hint" role="status">{searchMessage}</div>
         </div>
       )}
 
       <nav className="sidebar-list">
+        {hasSearchQuery && !searchError && (
+          <div className="sidebar-search-results-label">
+            <span>{isSearchLoading ? 'Поиск' : 'Результаты'}</span>
+            {isSearchReady && <span>{results.length}</span>}
+          </div>
+        )}
         {searchError && <div className="sidebar-empty">{searchError}</div>}
-        {displayed.length === 0 && !collapsed && !searchError && (
-          <div className="sidebar-empty">{isSearchReady ? 'Ничего не найдено' : 'Нет чатов'}</div>
+        {displayed.length === 0 && !collapsed && !searchError && (!hasSearchQuery || isSearchReady) && (
+          <div className={`sidebar-empty ${hasSearchQuery ? 'sidebar-empty-search' : ''}`}>
+            {hasSearchQuery
+              ? (isSearchReady ? <>Ничего не найдено<span>Попробуйте другое слово или фразу</span></> : null)
+              : 'Нет чатов'}
+          </div>
         )}
         {displayed.map((conv) => {
           const id = conv.conversationId || conv.id
