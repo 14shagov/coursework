@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.ragchatbot.client.PythonServiceClient;
@@ -16,6 +17,7 @@ import com.example.ragchatbot.dto.MessageRole;
 import com.example.ragchatbot.dto.RagContextResultDto;
 import com.example.ragchatbot.dto.StreamingChatChunk;
 import com.example.ragchatbot.entity.Conversation;
+import com.example.ragchatbot.entity.KnowledgeChunk;
 import com.example.ragchatbot.entity.Message;
 import com.example.ragchatbot.repository.ConversationRepository;
 import com.example.ragchatbot.repository.MessageRepository;
@@ -258,5 +260,39 @@ class ChatServiceImplTest {
         InOrder calls = org.mockito.Mockito.inOrder(ragService);
         calls.verify(ragService).createQueryEmbedding(eq("Question"), any());
         calls.verify(ragService).searchContext(eq(List.of(1.0f)), eq(5), any());
+        verifyNoInteractions(pythonStreamingClient);
+    }
+
+    @Test
+    void callsLlmOnlyWhenRagSearchHasRelevantContext() {
+        Conversation conversation = new Conversation();
+        conversation.setId(22L);
+        conversation.setMode(com.example.ragchatbot.dto.ConversationMode.RAG);
+        KnowledgeChunk knowledgeChunk = new KnowledgeChunk();
+        knowledgeChunk.setId(9L);
+        knowledgeChunk.setChunkIndex(0);
+        knowledgeChunk.setContent("Relevant context");
+
+        when(conversationRepository.findByIdAndUserId(22L, 7L)).thenReturn(Optional.of(conversation));
+        when(conversationRepository.findById(22L)).thenReturn(Optional.of(conversation));
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(22L)).thenReturn(List.of());
+        when(ragService.createQueryEmbedding(eq("Question"), any())).thenReturn(List.of(1.0f));
+        when(ragService.searchContext(eq(List.of(1.0f)), eq(5), any()))
+                .thenReturn(new RagContextResultDto(List.of(knowledgeChunk), 3, 1, 0.82d, 0.70d));
+        when(ragService.buildContextPrompt(eq(List.of(knowledgeChunk)), any())).thenReturn("Relevant context");
+        when(pythonStreamingClient.chatStreaming(any())).thenReturn(Flux.just(
+                "{\"type\":\"content\",\"text\":\"Answer\"}",
+                "{\"type\":\"done\",\"text\":\"\"}"));
+
+        List<StreamingChatChunk> chunks = chatService.sendMessageStreaming(7L, 22L, "Question")
+                .collectList()
+                .block();
+
+        assertThat(chunks)
+                .filteredOn(chunk -> chunk.getType() == StreamingChatChunk.Type.RAG_SEARCH)
+                .singleElement()
+                .extracting(StreamingChatChunk::getFoundChunks, StreamingChatChunk::getUsedChunks)
+                .containsExactly(3, 1);
+        verify(pythonStreamingClient).chatStreaming(any());
     }
 }

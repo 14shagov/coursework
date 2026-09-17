@@ -192,6 +192,11 @@ function createRagStepStates() {
   }
 }
 
+export function formatRagSearchNotice(usedChunks) {
+  const count = Number.isInteger(usedChunks) && usedChunks > 0 ? usedChunks : 0
+  return count > 0 ? `Релевантных чанков: ${count}` : 'Релевантный контекст не найден'
+}
+
 function ChatLayout({
   conversations,
   activeId,
@@ -513,7 +518,7 @@ export default function ChatPage({ onLogout }) {
                 }
               })
             } else if (chunk.type === 'rag_search') {
-              if (!ragProgressDismissedRef.current) setRagNotice('Найдено чанков: ' + (chunk.foundChunks ?? '?'))
+              if (!ragProgressDismissedRef.current) setRagNotice(formatRagSearchNotice(chunk.usedChunks))
             } else if (chunk.type === 'thinking') {
               if (typeof chunk.thinking !== 'string' || chunk.thinking === '') return
               setMessages((prev) => appendAssistantText(prev, assistantId, 'thinking', chunk.thinking))

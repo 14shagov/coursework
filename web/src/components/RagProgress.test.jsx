@@ -8,13 +8,13 @@ describe('RagProgress', () => {
     const markup = renderToStaticMarkup(
       <RagProgress
         steps={{ embedding: { status: 'done', label: 'Эмбеддим запрос…' } }}
-        notice="Найдено чанков: 5"
+        notice="Релевантных чанков: 5"
         onDismiss={() => {}}
       />,
     )
 
     expect(markup).toContain('class="rag-progress"')
     expect(markup).toContain('Поиск по базе знаний')
-    expect(markup).toContain('Найдено чанков: 5')
+    expect(markup).toContain('Релевантных чанков: 5')
   })
 })

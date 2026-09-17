@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { appendAssistantText, createPendingMessages, isLatestConversationLoad, isNearMessagesBottom, shouldScrollLoadedConversationToBottom } from './ChatPage'
+import { appendAssistantText, createPendingMessages, formatRagSearchNotice, isLatestConversationLoad, isNearMessagesBottom, shouldScrollLoadedConversationToBottom } from './ChatPage'
 
 describe('pending chat messages', () => {
   it('assigns distinct IDs before React schedules state updates', () => {
@@ -43,5 +43,11 @@ describe('pending chat messages', () => {
   it('ignores a stale conversation-load result', () => {
     expect(isLatestConversationLoad(2, 2)).toBe(true)
     expect(isLatestConversationLoad(1, 2)).toBe(false)
+  })
+
+  it('reports only chunks that passed RAG relevance threshold', () => {
+    expect(formatRagSearchNotice(2)).toBe('Релевантных чанков: 2')
+    expect(formatRagSearchNotice(0)).toBe('Релевантный контекст не найден')
+    expect(formatRagSearchNotice(undefined)).toBe('Релевантный контекст не найден')
   })
 })
