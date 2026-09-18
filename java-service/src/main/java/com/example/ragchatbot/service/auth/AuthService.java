@@ -27,11 +27,11 @@ public class AuthService {
 
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already exists");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Это имя пользователя уже занято.");
         }
         String email = normalizeEmail(request.getEmail());
         if (userRepository.existsByEmail(email)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Этот email уже зарегистрирован.");
         }
 
         User user = new User();
@@ -46,10 +46,10 @@ public class AuthService {
 
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(normalizeEmail(request.getEmail()))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Неверный email или пароль."));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Неверный email или пароль.");
         }
 
         return buildResponse(user);
