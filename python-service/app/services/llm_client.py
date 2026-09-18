@@ -6,7 +6,7 @@ from openai import OpenAI
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
+#swag
 
 def _split_qwen_content(buffer: str, in_thinking: bool, *, finalize: bool) -> tuple[list[tuple[str, str]], str, bool]:
     """Separate Qwen <think> blocks when a compatible provider puts them in content."""
