@@ -5,6 +5,7 @@ import { setAuthToken } from '../api/client'
 export default function AuthPage({ onAuth }) {
   const [mode, setMode] = useState('login')
   const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -14,8 +15,9 @@ export default function AuthPage({ onAuth }) {
     setError('')
     setLoading(true)
     try {
-      const action = mode === 'login' ? login : register
-      const response = await action(username.trim(), password)
+      const response = mode === 'login'
+        ? await login(email.trim(), password)
+        : await register(username.trim(), email.trim(), password)
       setAuthToken(response.accessToken)
       onAuth(response)
     } catch (err) {
@@ -32,11 +34,21 @@ export default function AuthPage({ onAuth }) {
       <div className="auth-card">
         <h1>{isLogin ? 'Вход' : 'Регистрация'}</h1>
         <form onSubmit={onSubmit} className="auth-form">
+          {!isLogin && (
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              minLength={3}
+              required
+            />
+          )}
           <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Username"
-            minLength={3}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email"
+            type="email"
+            maxLength={254}
             required
           />
           <input

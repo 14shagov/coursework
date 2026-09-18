@@ -1,5 +1,5 @@
-INSERT INTO users (id, username, password_hash, created_at)
-VALUES (1, 'test_student', '$2a$10$7QJzQmQrtf6jL.Bvzc8SceIqN4x9YuqbWtaXDpUe1koXSPoaqe7iG', NOW())
+INSERT INTO users (id, username, email, password_hash, created_at)
+VALUES (1, 'test_student', 'test_student@example.test', '$2a$10$7QJzQmQrtf6jL.Bvzc8SceIqN4x9YuqbWtaXDpUe1koXSPoaqe7iG', NOW())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO knowledge_entries (id, user_id, title, content, created_at) VALUES
@@ -77,9 +77,9 @@ INSERT INTO knowledge_chunks (entry_id, chunk_index, content, embedding, created
                                                                                          (10, 1, 'Красные гиганты — это звезды поздней стадии, у которых внешние слои сильно расширяются.', NULL, NOW()),
                                                                                          (10, 2, 'Белый карлик — компактный остаток звезды, где уже не идет активный термоядерный синтез водорода.', NULL, NOW()),
                                                                                          (10, 3, 'Пример разговорного запроса: «Солнце — это обычная звезда или особенная?» Ответ: типичная звезда своего класса.', NULL, NOW());
-INSERT INTO conversations (id, user_id, mode, title, created_at) VALUES
-(1, 1, 'PLAIN', 'Общий чат по астрономии', NOW()),
-(2, 1, 'RAG', 'Вопросы с поиском по базе знаний', NOW())
+INSERT INTO conversations (id, user_id, mode, title, created_at, last_message_at) VALUES
+(1, 1, 'PLAIN', 'Общий чат по астрономии', NOW(), NOW()),
+(2, 1, 'RAG', 'Вопросы с поиском по базе знаний', NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO messages (conversation_id, role, content, created_at) VALUES

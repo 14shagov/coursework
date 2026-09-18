@@ -6,6 +6,7 @@ import com.example.ragchatbot.dto.auth.RegisterRequest;
 import com.example.ragchatbot.entity.User;
 import com.example.ragchatbot.repository.UserRepository;
 import java.time.Instant;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -28,9 +29,14 @@ public class AuthService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already exists");
         }
+        String email = normalizeEmail(request.getEmail());
+        if (userRepository.existsByEmail(email)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists");
+        }
 
         User user = new User();
         user.setUsername(request.getUsername());
+        user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setCreatedAt(Instant.now());
 
@@ -39,7 +45,7 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
+        User user = userRepository.findByEmail(normalizeEmail(request.getEmail()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
@@ -52,5 +58,9 @@ public class AuthService {
     private AuthResponse buildResponse(User user) {
         String token = jwtService.generateToken(user.getId(), user.getUsername());
         return new AuthResponse(token, "Bearer", ttlMinutes * 60, user.getId(), user.getUsername());
+    }
+
+    private String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 }

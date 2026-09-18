@@ -3,13 +3,3 @@ databaseChangeLog:
       file: db/changelog/changes/001-init-schema.sql
   - include:
       file: db/changelog/changes/002-seed-test-data.sql
-  - include:
-      file: db/changelog/changes/003-embedding-3072.sql
-  - include:
-      file: db/changelog/changes/004-embedding-jobs.sql
-  - include:
-      file: db/changelog/changes/005-message-thinking.sql
-  - include:
-      file: db/changelog/changes/006-conversation-llm-model.sql
-  - include:
-      file: db/changelog/changes/007-chat-titles-and-search.sql

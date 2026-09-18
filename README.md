@@ -123,8 +123,8 @@ Vite откроется на `http://localhost:5173` и проксирует `/a
 
 | Метод | Путь | Назначение |
 |---|---|---|
-| `POST` | `/api/auth/register` | Регистрация и получение JWT |
-| `POST` | `/api/auth/login` | Вход и получение JWT |
+| `POST` | `/api/auth/register` | Регистрация по username, email и паролю; получение JWT |
+| `POST` | `/api/auth/login` | Вход по email и паролю; получение JWT |
 | `POST` | `/api/conversations` | Создать диалог в `PLAIN` или `RAG` |
 | `GET` | `/api/conversations` | Список диалогов текущего пользователя |
 | `PUT` | `/api/conversations/{id}/title` | Переименовать диалог |

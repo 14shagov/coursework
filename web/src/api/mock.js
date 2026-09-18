@@ -102,7 +102,7 @@ export async function mockApiRequest(path, options = {}) {
   if (pathname === '/api/auth/login' && method === 'POST') {
     const body = JSON.parse(options.body || '{}')
     await wait()
-    return { accessToken: 'mock-jwt-login', tokenType: 'Bearer', expiresIn: 3600, userId: MOCK_USER_ID, username: body.username }
+    return { accessToken: 'mock-jwt-login', tokenType: 'Bearer', expiresIn: 3600, userId: MOCK_USER_ID, username: 'mock-user' }
   }
 
   // conversations list
