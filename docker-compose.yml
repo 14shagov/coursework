@@ -85,6 +85,27 @@ services:
       java-service:
         condition: service_started
 
+  caddy:
+    image: caddy:2
+    container_name: rag-caddy
+    restart: unless-stopped
+    profiles: ["public"]
+    environment:
+      SERVER_IP: ${SERVER_IP:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_started
+
 volumes:
   pg_data:
   elasticsearch_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,8 @@
+{$SERVER_IP} {
+	reverse_proxy web:80
+
+	tls {
+		ca https://acme-v02.api.letsencrypt.org/directory
+		profile shortlived
+	}
+}
