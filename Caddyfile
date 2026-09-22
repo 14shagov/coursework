@@ -1,3 +1,7 @@
+{
+	default_sni {$SERVER_IP}
+}
+
 {$SERVER_IP} {
 	reverse_proxy web:80
 
